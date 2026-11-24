@@ -208,7 +208,7 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
     }
 
     @Test func everyCallIsOneLineIncludingRefusals() async throws {
-        let fixture = try await Fixture(containers: [Fixture.foreign("user-db")], images: [alpine])
+        let fixture = try await Fixture(containers: [Fixture.foreign("user-db")], images: [alpine], protected: ["user-db"])
         defer { fixture.remove() }
         _ = await fixture.call(.containersList)
         _ = await fixture.call(.containerDelete, ["id": "user-db"])
@@ -217,7 +217,7 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
         #expect(lines.count == 3)
         #expect(lines.map { $0["tool"] as? String } == ["containers_list", "container_delete", "container_run"])
         #expect(lines.map { $0["decision"] as? String } == ["allowed", "refused", "allowed"])
-        #expect(lines[1]["rule"] as? String == "ownership.unlabelled")
+        #expect(lines[1]["rule"] as? String == "ownership.protected")
         #expect(lines[0]["rule"] as? String == "policy")
         for line in lines {
             #expect(line["time"] is String)

@@ -120,6 +120,17 @@ let hostPort = 18_000 + Int.random(in: 0..<999)
 print("\n## read tools")
 let status = await call("system_status")
 let initialList = await call("containers_list", ["all": true])
+// The server may manage every container that is neither protected nor the container tool's own,
+// so the probe refuses to go on while any of the user's containers is left unprotected.
+let unprotected = (object(initialList)["containers"] as? [[String: Any]] ?? []).filter {
+    ($0["protected"] as? Bool) == false && ($0["owned"] as? Bool) == false && ($0["infrastructure"] as? Bool) == false
+}.compactMap { $0["id"] as? String }
+guard unprotected.isEmpty else {
+    print("STOPPED: these containers are not protected, so the probe could touch them: \(unprotected.joined(separator: ", ")). Pass them in --protected-containers.")
+    await client.disconnect()
+    server.terminate()
+    exit(3)
+}
 await call("images_list")
 await call("volumes_list")
 await call("networks_list")
@@ -170,13 +181,16 @@ await call("container_stop", ["id": .string(name), "timeout_seconds": 2])
 print("\n## build")
 await call("image_build", ["context_path": .string(readOnly + "/build"), "tag": .string("\(name):1")])
 
-print("\n## containers this server did not create")
-if let list = object(await call("containers_list")).values.first as? [[String: Any]],
-    let foreign = list.first(where: { ($0["owned"] as? Bool) == false })?["id"] as? String
-{
-    await call("container_stop", ["id": .string(foreign)], expect: "refused", note: "not labelled, not adopted")
-    await call("container_exec", ["id": .string(foreign), "command": ["true"]], expect: "refused")
-    await call("container_delete", ["id": .string(foreign)], expect: "refused")
+print("\n## protected and infrastructure containers")
+let listing = object(await call("containers_list"))["containers"] as? [[String: Any]] ?? []
+if let protected = listing.first(where: { ($0["protected"] as? Bool) == true })?["id"] as? String {
+    await call("container_stop", ["id": .string(protected)], expect: "refused", note: "listed as protected")
+    await call("container_exec", ["id": .string(protected), "command": ["true"]], expect: "refused")
+    await call("container_logs", ["id": .string(protected)], expect: "refused")
+    await call("container_delete", ["id": .string(protected)], expect: "refused")
+}
+if let builder = listing.first(where: { ($0["infrastructure"] as? Bool) == true })?["id"] as? String {
+    await call("container_delete", ["id": .string(builder)], expect: "refused", note: "the container tool's own")
 }
 
 print("\n## cleanup")

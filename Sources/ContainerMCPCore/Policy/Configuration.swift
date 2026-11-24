@@ -66,8 +66,8 @@ public struct Configuration: Sendable, Equatable {
     public let exec: ExecLimits
     public let pullTimeoutSeconds: Int
     public let buildTimeoutSeconds: Int
-    /// Containers the server did not create that it may start and stop, never exec into or delete.
-    public let adoptedContainers: [String]
+    /// Containers the server must never touch: no start, stop, exec, delete, inspect, logs or stats.
+    public let protectedContainers: [String]
 
     public init(
         mountRoots: [MountRoot],
@@ -78,7 +78,7 @@ public struct Configuration: Sendable, Equatable {
         exec: ExecLimits,
         pullTimeoutSeconds: Int,
         buildTimeoutSeconds: Int,
-        adoptedContainers: [String]
+        protectedContainers: [String]
     ) {
         self.mountRoots = mountRoots
         self.hostPorts = hostPorts
@@ -88,7 +88,7 @@ public struct Configuration: Sendable, Equatable {
         self.exec = exec
         self.pullTimeoutSeconds = pullTimeoutSeconds
         self.buildTimeoutSeconds = buildTimeoutSeconds
-        self.adoptedContainers = adoptedContainers
+        self.protectedContainers = protectedContainers
     }
 }
 
@@ -107,7 +107,7 @@ public enum ConfigurationArguments {
         "write-tools-enabled", "read-only-folders", "writable-folders", "host-port-min", "host-port-max",
         "registries", "default-cpus", "max-cpus", "default-memory-mib", "max-memory-mib", "log-max-lines",
         "log-max-bytes", "exec-timeout-seconds", "exec-max-output-bytes", "pull-timeout-seconds",
-        "build-timeout-seconds", "adopted-containers",
+        "build-timeout-seconds", "protected-containers",
     ]
 
     /// Splits `arguments` into option values, refusing anything that is not a known `--option value` pair.
@@ -191,7 +191,7 @@ public enum ConfigurationArguments {
         return Configuration(
             mountRoots: mountRoots, hostPorts: portRange, registries: registries, resources: resources, logs: logs,
             exec: exec, pullTimeoutSeconds: pullTimeout, buildTimeoutSeconds: buildTimeout,
-            adoptedContainers: list(values, "adopted-containers"))
+            protectedContainers: list(values, "protected-containers"))
     }
 
     /// Claude Code joins the entries of a list option with commas, so a comma can never be

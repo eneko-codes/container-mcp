@@ -123,28 +123,34 @@ public actor ToolDispatcher {
             let all = try arguments.boolean("all", default: true)
             var containers = try await backend.listContainers()
             if !all { containers = containers.filter(\.isRunning) }
-            let adopted = Set(configurationState.configuration?.adoptedContainers ?? [])
+            let protected = Set(configurationState.protectedContainers)
             let items = containers.map { container -> [String: Any] in
+                // A protected container shows only that it exists, nothing of its configuration.
+                if protected.contains(container.id) {
+                    return ["id": container.id, "status": container.status, "protected": true]
+                }
                 var item = Self.jsonObject(container) as? [String: Any] ?? [:]
                 item["owned"] = Policy.isOwned(container.labels)
-                item["adopted"] = adopted.contains(container.id)
+                item["protected"] = false
+                item["infrastructure"] = Policy.isInfrastructure(container.labels)
                 return item
             }
             return Output(text: Self.render(["containers": items]), summary: "\(items.count) containers")
         case .containerInspect:
             let arguments = try Arguments(raw, allowed: ["id"])
             let id = try arguments.requiredString("id")
+            try Policy.approveContainerAccess(.read, on: try await findContainer(id), protectedContainers: configurationState.protectedContainers)
             let detail = try await backend.inspectContainer(id: id)
             let raw = (try? JSONSerialization.jsonObject(with: detail.redactedJSON)) ?? [:]
-            let adopted = configurationState.configuration?.adoptedContainers.contains(id) ?? false
             return Output(
-                text: Self.render(["owned": Policy.isOwned(detail.summary.labels), "adopted": adopted, "container": raw]),
+                text: Self.render(["owned": Policy.isOwned(detail.summary.labels), "container": raw]),
                 summary: "inspected \(id)")
         case .containerLogs:
             let arguments = try Arguments(raw, allowed: ["id", "lines", "boot"])
             let id = try arguments.requiredString("id")
             let requested = try arguments.integer("lines")
             let boot = try arguments.boolean("boot", default: false)
+            try Policy.approveContainerAccess(.read, on: try await findContainer(id), protectedContainers: configurationState.protectedContainers)
             let limits: (lines: Int, bytes: Int)
             if let policy {
                 limits = try policy.approveLogs(lines: requested)
@@ -168,6 +174,7 @@ public actor ToolDispatcher {
             let arguments = try Arguments(raw, allowed: ["id"])
             let id = try arguments.requiredString("id")
             let container = try await findContainer(id)
+            try Policy.approveContainerAccess(.read, on: container, protectedContainers: configurationState.protectedContainers)
             guard container.isRunning else {
                 throw Refusal(.stateNotRunning, "\(id) is \(container.status)", allowed: "statistics of running containers")
             }
@@ -350,7 +357,7 @@ public actor ToolDispatcher {
                 "mountRoots": configuration.mountRoots.map { ["path": $0.path, "writable": $0.writable] },
                 "hostPorts": ["min": configuration.hostPorts.minimum, "max": configuration.hostPorts.maximum],
                 "registries": configuration.registries,
-                "adopted": configuration.adoptedContainers,
+                "protected": configuration.protectedContainers,
             ]
         case .missing:
             object["configuration"] = ["state": "missing", "effect": "only read tools work: the server was started without policy settings"]

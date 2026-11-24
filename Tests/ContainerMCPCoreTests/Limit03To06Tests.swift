@@ -61,53 +61,75 @@ private func createdSpecification(_ fixture: Fixture) async -> RunSpecification?
     }
 }
 
-/// Limit 4: ownership by label; adopted containers may only be started and stopped.
+/// Limit 4: every container may be managed except those the user protected, which no tool
+/// may touch, and the container tool's own; everything the server creates carries its label.
 @Suite struct OwnershipTests {
-    @Test func unlabelledContainerCannotBeStartedStoppedExecdOrDeleted() async throws {
-        let fixture = try await Fixture(containers: [Fixture.foreign("user-db", status: "stopped"), Fixture.foreign("user-web")])
+    static let builder = ContainerSummary(
+        id: "buildkit", image: "ghcr.io/apple/container-builder-shim/builder:0.13.3", status: "running",
+        labels: ["com.apple.container.resource.role": "builder", "com.apple.container.plugin": "builder"])
+
+    @Test func protectedContainersCannotBeTouchedAtAll() async throws {
+        let fixture = try await Fixture(
+            containers: [Fixture.foreign("example-db", status: "stopped"), Fixture.foreign("example-cache")],
+            protected: ["example-db", "example-cache"])
         defer { fixture.remove() }
-        #expect(await fixture.call(.containerStart, ["id": "user-db"]).refused(by: .ownershipUnlabelled))
-        #expect(await fixture.call(.containerStop, ["id": "user-web"]).refused(by: .ownershipUnlabelled))
-        #expect(await fixture.call(.containerExec, ["id": "user-web", "command": ["ls"]]).refused(by: .ownershipUnlabelled))
-        #expect(await fixture.call(.containerDelete, ["id": "user-db"]).refused(by: .ownershipUnlabelled))
+        #expect(await fixture.call(.containerStart, ["id": "example-db"]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerStop, ["id": "example-cache"]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerExec, ["id": "example-cache", "command": ["sh"]]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerDelete, ["id": "example-db"]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerInspect, ["id": "example-db"]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerLogs, ["id": "example-cache"]).refused(by: .ownershipProtected))
+        #expect(await fixture.call(.containerStats, ["id": "example-cache"]).refused(by: .ownershipProtected))
         #expect(await fixture.backend.calls.isEmpty)
     }
 
-    @Test func ownedContainerCanBeManaged() async throws {
-        let fixture = try await Fixture(containers: [Fixture.owned("web", status: "stopped"), Fixture.owned("api")])
+    @Test func protectedContainersShowOnlyNameAndStatusInTheList() async throws {
+        let fixture = try await Fixture(containers: [Fixture.foreign("example-db")], protected: ["example-db"])
         defer { fixture.remove() }
-        #expect(await fixture.call(.containerStart, ["id": "web"]).isError != true)
-        #expect(await fixture.call(.containerStop, ["id": "api"]).isError != true)
-        #expect(await fixture.call(.containerExec, ["id": "api", "command": ["ls"]]).isError != true)
-        #expect(await fixture.call(.containerDelete, ["id": "web"]).isError != true)
+        let text = await fixture.call(.containersList).text
+        #expect(text.contains("\"protected\" : true"))
+        #expect(!text.contains("redis"), "a protected container's image must not be shown")
+    }
+
+    @Test func protectedListAppliesWhileWriteToolsAreOff() async throws {
+        let fixture = try await Fixture(containers: [Fixture.foreign("example-db")])
+        defer { fixture.remove() }
+        var configuration = fixture.configuration
+        configuration = Configuration(
+            mountRoots: configuration.mountRoots, hostPorts: configuration.hostPorts, registries: configuration.registries,
+            resources: configuration.resources, logs: configuration.logs, exec: configuration.exec,
+            pullTimeoutSeconds: 60, buildTimeoutSeconds: 60, protectedContainers: ["example-db"])
+        let dispatcher = ToolDispatcher(
+            backend: fixture.backend, configurationState: .writeToolsDisabled(configuration), paths: fixture.paths,
+            audit: AuditLog(path: nil), ownedImages: OwnedImages(path: nil))
+        let result = await dispatcher.call(name: "container_logs", arguments: ["id": "example-db"])
+        #expect(result.refused(by: .ownershipProtected))
+    }
+
+    @Test func otherContainersCanBeManagedEvenIfTheServerDidNotCreateThem() async throws {
+        let fixture = try await Fixture(containers: [Fixture.foreign("user-db", status: "stopped"), Fixture.foreign("user-web")], protected: ["something-else"])
+        defer { fixture.remove() }
+        #expect(await fixture.call(.containerStart, ["id": "user-db"]).isError != true)
+        #expect(await fixture.call(.containerStop, ["id": "user-web"]).isError != true)
+        #expect(await fixture.call(.containerExec, ["id": "user-web", "command": ["ls"]]).isError != true)
+        #expect(await fixture.call(.containerDelete, ["id": "user-db"]).isError != true)
         #expect(await fixture.backend.calls.count == 4)
     }
 
-    @Test func adoptedContainerCanBeStartedAndStoppedOnly() async throws {
-        let fixture = try await Fixture(
-            containers: [Fixture.foreign("example-db", status: "stopped"), Fixture.foreign("example-cache")],
-            adopted: ["example-db", "example-cache"])
+    @Test func theContainerToolsOwnContainersCanBeReadButNotChanged() async throws {
+        let fixture = try await Fixture(containers: [Self.builder])
         defer { fixture.remove() }
-        #expect(await fixture.call(.containerStart, ["id": "example-db"]).isError != true)
-        #expect(await fixture.call(.containerStop, ["id": "example-cache"]).isError != true)
-        #expect(await fixture.call(.containerExec, ["id": "example-cache", "command": ["sh"]]).refused(by: .ownershipAdoptedExec))
-        #expect(await fixture.call(.containerDelete, ["id": "example-db"]).refused(by: .ownershipAdoptedDelete))
-        #expect(await fixture.backend.calls == [.start("example-db"), .stop("example-cache", 5)])
+        #expect(await fixture.call(.containerStop, ["id": "buildkit"]).refused(by: .ownershipInfrastructure))
+        #expect(await fixture.call(.containerExec, ["id": "buildkit", "command": ["ls"]]).refused(by: .ownershipInfrastructure))
+        #expect(await fixture.call(.containerDelete, ["id": "buildkit"]).refused(by: .ownershipInfrastructure))
+        #expect(await fixture.call(.containerLogs, ["id": "buildkit"]).isError != true)
+        #expect(await fixture.backend.calls.isEmpty)
     }
 
-    @Test func runningOwnedContainerIsNotDeleted() async throws {
+    @Test func runningContainerIsNotDeleted() async throws {
         let fixture = try await Fixture(containers: [Fixture.owned("web")])
         defer { fixture.remove() }
         #expect(await fixture.call(.containerDelete, ["id": "web"]).refused(by: .stateRunning))
-    }
-
-    @Test func readToolsWorkOnEveryContainer() async throws {
-        let fixture = try await Fixture(containers: [Fixture.foreign("user-db")])
-        defer { fixture.remove() }
-        #expect(await fixture.call(.containersList).text.contains("user-db"))
-        #expect(await fixture.call(.containerInspect, ["id": "user-db"]).isError != true)
-        #expect(await fixture.call(.containerLogs, ["id": "user-db"]).isError != true)
-        #expect(await fixture.call(.containerStats, ["id": "user-db"]).isError != true)
     }
 
     @Test func createdResourcesCarryTheLabel() async throws {

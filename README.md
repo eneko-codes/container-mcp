@@ -66,7 +66,7 @@ cannot silently drop a limit.
 | `log_max_lines`, `log_max_bytes` | The most a log call returns | 500, 65536 |
 | `exec_timeout_seconds`, `exec_max_output_bytes` | Default and maximum time an exec may run before it is killed, and the most stdout plus stderr it returns | 60, 65536 |
 | `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned | 600, 1800 |
-| `adopted_containers` | Containers the server did not create that it may start and stop, never exec into or delete | none |
+| `protected_containers` | Containers the server did not create that it may start and stop, never exec into or delete | none |
 
 Claude Code passes list options as one comma-separated argument, so a folder whose path
 contains a comma cannot be listed.

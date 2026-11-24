@@ -15,7 +15,7 @@ import Testing
             "default-cpus": "2", "max-cpus": "4", "default-memory-mib": "1024", "max-memory-mib": "4096",
             "log-max-lines": "500", "log-max-bytes": "65536", "exec-timeout-seconds": "60",
             "exec-max-output-bytes": "65536", "pull-timeout-seconds": "600", "build-timeout-seconds": "1800",
-            "adopted-containers": "example-db",
+            "protected-containers": "example-db",
         ]
         for (key, value) in overrides { values[key] = value }
         return ConfigurationArguments.options.flatMap { name in values[name].map { ["--\(name)", $0] } ?? [] }
@@ -25,16 +25,16 @@ import Testing
         let configuration = try #require(ConfigurationLoader.load(arguments: Self.arguments()).configuration)
         #expect(configuration.mountRoots == [.init(path: "/tmp", resolvedPath: "/private/tmp", writable: false)])
         #expect(configuration.registries == ["docker.io", "ghcr.io"])
-        #expect(configuration.adoptedContainers == ["example-db"])
+        #expect(configuration.protectedContainers == ["example-db"])
         #expect(configuration.hostPorts == .init(minimum: 8000, maximum: 8999))
     }
 
     @Test func listsAreSplitOnCommasAndEmptyListsAreEmpty() throws {
         let configuration = try #require(
-            ConfigurationLoader.load(arguments: Self.arguments(["read-only-folders": "/tmp, /usr", "writable-folders": "/private/tmp", "adopted-containers": ""])).configuration)
+            ConfigurationLoader.load(arguments: Self.arguments(["read-only-folders": "/tmp, /usr", "writable-folders": "/private/tmp", "protected-containers": ""])).configuration)
         #expect(configuration.mountRoots.map(\.path) == ["/tmp", "/usr", "/private/tmp"])
         #expect(configuration.mountRoots.map(\.writable) == [false, false, true])
-        #expect(configuration.adoptedContainers.isEmpty)
+        #expect(configuration.protectedContainers.isEmpty)
     }
 
     @Test func noArgumentsMeansMissing() {
@@ -42,7 +42,12 @@ import Testing
     }
 
     @Test func writeToolsOffMeansDisabled() {
-        #expect(ConfigurationLoader.load(arguments: Self.arguments(["write-tools-enabled": "false"])) == .writeToolsDisabled)
+        guard case .writeToolsDisabled(let configuration) = ConfigurationLoader.load(arguments: Self.arguments(["write-tools-enabled": "false"])) else {
+            Issue.record("expected write tools off")
+            return
+        }
+        // The settings are still read, so the protected list keeps applying.
+        #expect(configuration.protectedContainers == ["example-db"])
     }
 
     @Test func unknownOptionMakesTheSettingsInvalid() {
@@ -68,14 +73,15 @@ import Testing
             ["read-only-folders": "relative/path"], ["read-only-folders": "/nonexistent-container-mcp"],
             ["host-port-min": "80"], ["host-port-min": "9000", "host-port-max": "8000"], ["max-cpus": "four"],
             ["default-memory-mib": "100"], ["write-tools-enabled": "yes"], ["registries": "docker.io/library"],
-            ["adopted-containers": "-bad name"],
+            ["protected-containers": "-bad name"],
         ] {
             #expect(ConfigurationLoader.load(arguments: Self.arguments(override)).configuration == nil, "\(override)")
         }
     }
 
     @Test func withoutSettingsOnlyReadToolsWork() async throws {
-        for state in [ConfigurationState.missing, .writeToolsDisabled] {
+        let readOnly = try #require(ConfigurationLoader.load(arguments: Self.arguments()).configuration)
+        for state in [ConfigurationState.missing, .writeToolsDisabled(readOnly)] {
             let fixture = try await Fixture(containers: [Fixture.owned("web")], configurationState: state)
             defer { fixture.remove() }
             for tool in ToolName.allCases where tool.isReadOnly && ![.containerStats, .containerInspect, .imageInspect, .containerLogs].contains(tool) {

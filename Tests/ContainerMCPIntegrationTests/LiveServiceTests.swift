@@ -28,7 +28,9 @@ struct LiveServiceTests {
         let paths: ServerPaths
     }
 
-    func makeHarness() throws -> Harness {
+    /// `protected` must list every container that existed before the test, so that no tool
+    /// call of the test can touch one of the user's containers.
+    func makeHarness(protected: [String]) throws -> Harness {
         let created = NSTemporaryDirectory() + "container-mcp-it-" + suffix
         let scratch = PathResolution.resolveAllowingMissing(created)
         let readOnlyRoot = scratch + "/readonly"
@@ -52,7 +54,7 @@ struct LiveServiceTests {
             resources: .init(defaultCPUs: 1, maximumCPUs: 2, defaultMemoryMiB: 512, maximumMemoryMiB: 1024),
             logs: .init(maximumLines: 50, maximumBytes: 8192),
             exec: .init(maximumTimeoutSeconds: 20, maximumOutputBytes: 4096),
-            pullTimeoutSeconds: 600, buildTimeoutSeconds: 900, adoptedContainers: [])
+            pullTimeoutSeconds: 600, buildTimeoutSeconds: 900, protectedContainers: protected)
         let paths = ServerPaths(home: scratch + "/home")
         let audit = AuditLog(path: paths.auditFile)
         let dispatcher = ToolDispatcher(
@@ -98,8 +100,9 @@ struct LiveServiceTests {
     }
 
     @Test func everyToolAgainstTheRealService() async throws {
-        let harness = try makeHarness()
         let backend = NativeBackend()
+        let existing = try await backend.listContainers()
+        let harness = try makeHarness(protected: existing.filter { !Policy.isInfrastructure($0.labels) }.map(\.id))
         let imagesBefore = Set(try await backend.listImages().map(\.reference))
         try #require(!imagesBefore.contains(Self.image), "\(Self.image) must not exist before the test, so that deleting it is safe")
         let builtTag = "docker.io/library/\(name):1"
@@ -192,15 +195,19 @@ struct LiveServiceTests {
         let stats = await call(harness, .containerStats, ["id": .string(name)])
         #expect(!stats.error, "\(stats.text)")
 
-        // Refusals against the real service: a symlink escape, a foreign container.
+        // Refusals against the real service: a symlink escape, a protected container, the builder.
         let escape = await call(harness, .containerRun, [
             "image": .string(Self.image), "name": .string(name + "-escape"),
             "mounts": [["host_path": .string(harness.readOnlyRoot + "/escape"), "container_path": "/keys"]],
         ])
         #expect(escape.text.hasPrefix("Refused by rule mount.protected"), "\(escape.text)")
-        if let foreign = try await backend.listContainers().first(where: { !Policy.isOwned($0.labels) }) {
-            #expect(await call(harness, .containerDelete, ["id": .string(foreign.id)]).text.hasPrefix("Refused by rule ownership.unlabelled"))
-            #expect(await call(harness, .containerExec, ["id": .string(foreign.id), "command": ["true"]]).text.hasPrefix("Refused by rule ownership.unlabelled"))
+        if let protected = try await backend.listContainers().first(where: { !Policy.isOwned($0.labels) && !Policy.isInfrastructure($0.labels) }) {
+            #expect(await call(harness, .containerDelete, ["id": .string(protected.id)]).text.hasPrefix("Refused by rule ownership.protected"))
+            #expect(await call(harness, .containerExec, ["id": .string(protected.id), "command": ["true"]]).text.hasPrefix("Refused by rule ownership.protected"))
+            #expect(await call(harness, .containerLogs, ["id": .string(protected.id)]).text.hasPrefix("Refused by rule ownership.protected"))
+        }
+        if let builder = try await backend.listContainers().first(where: { Policy.isInfrastructure($0.labels) }) {
+            #expect(await call(harness, .containerDelete, ["id": .string(builder.id)]).text.hasPrefix("Refused by rule ownership.infrastructure"))
         }
         #expect(await call(harness, .containerDelete, ["id": .string(name)]).text.hasPrefix("Refused by rule state.running"))
 

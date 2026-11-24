@@ -275,29 +275,36 @@ public struct Policy: Sendable {
     // MARK: Container lifecycle
 
     public enum LifecycleAction: String, Sendable {
-        case start, stop, exec, delete
+        case read, start, stop, exec, delete
     }
 
-    /// Ownership rule: start, stop, exec and delete need the server's label. Containers the
-    /// user adopted in the configuration may also be started and stopped, nothing else.
-    public func approveLifecycle(_ action: LifecycleAction, on container: ContainerSummary) throws(Refusal) {
-        let owned = Self.isOwned(container.labels)
-        let adopted = configuration.adoptedContainers.contains(container.id)
-        if owned { return }
-        switch (action, adopted) {
-        case (.start, true), (.stop, true):
-            return
-        case (.exec, true):
-            throw Refusal(.ownershipAdoptedExec, "\(container.id) is adopted, and adopted containers are never exec'd into", allowed: "exec into containers this server created")
-        case (.delete, true):
-            throw Refusal(.ownershipAdoptedDelete, "\(container.id) is adopted, and adopted containers are never deleted", allowed: "deleting containers this server created")
-        default:
+    /// Labels the container tool puts on its own containers, such as the shared builder.
+    static let infrastructureLabelKeys = ["com.apple.container.resource.role", "com.apple.container.plugin"]
+
+    public static func isInfrastructure(_ labels: [String: String]) -> Bool {
+        infrastructureLabelKeys.contains { labels[$0] != nil }
+    }
+
+    /// Every container may be managed except two kinds: those the user listed as protected,
+    /// which are not even read, and the container tool's own containers, which may be read
+    /// but never changed.
+    public static func approveContainerAccess(
+        _ action: LifecycleAction, on container: ContainerSummary, protectedContainers: [String]
+    ) throws(Refusal) {
+        if protectedContainers.contains(container.id) {
             throw Refusal(
-                .ownershipUnlabelled, "\(container.id) was not created by this server",
-                allowed: action == .start || action == .stop
-                    ? "containers this server created, or containers listed under \"adopted\" in the configuration"
-                    : "containers this server created")
+                .ownershipProtected, "\(container.id) is listed as protected in the plugin settings",
+                allowed: "containers that are not listed as protected")
         }
+        if action != .read && isInfrastructure(container.labels) {
+            throw Refusal(
+                .ownershipInfrastructure, "\(container.id) belongs to the container tool itself",
+                allowed: "containers that are not the container tool's own")
+        }
+    }
+
+    public func approveLifecycle(_ action: LifecycleAction, on container: ContainerSummary) throws(Refusal) {
+        try Self.approveContainerAccess(action, on: container, protectedContainers: configuration.protectedContainers)
     }
 
     public func approveExec(_ input: ExecInput, on container: ContainerSummary) throws(Refusal) -> ExecSpecification {

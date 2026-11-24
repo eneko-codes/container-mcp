@@ -21,7 +21,7 @@ struct Fixture {
 
     init(
         containers: [ContainerSummary] = [], images: [ImageSummary] = [], volumes: [VolumeSummary] = [],
-        networks: [NetworkSummary]? = nil, adopted: [String] = [], configurationState: ConfigurationState? = nil,
+        networks: [NetworkSummary]? = nil, protected: [String] = [], configurationState: ConfigurationState? = nil,
         ownedImageReferences: [String] = [], pullTimeoutSeconds: Int = 60
     ) async throws {
         let created = NSTemporaryDirectory() + "container-mcp-tests-" + UUID().uuidString
@@ -58,7 +58,7 @@ struct Fixture {
             logs: .init(maximumLines: 5, maximumBytes: 64),
             exec: .init(maximumTimeoutSeconds: 30, maximumOutputBytes: 4096),
             pullTimeoutSeconds: pullTimeoutSeconds, buildTimeoutSeconds: 60,
-            adoptedContainers: adopted)
+            protectedContainers: protected)
 
         var allImages = images
         allImages.append(ImageSummary(reference: "ghcr.io/apple/containerization/vminit:0.54.0", digest: "sha256:init"))

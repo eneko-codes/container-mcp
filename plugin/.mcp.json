@@ -35,8 +35,8 @@
         "${user_config.pull_timeout_seconds}",
         "--build-timeout-seconds",
         "${user_config.build_timeout_seconds}",
-        "--adopted-containers",
-        "${user_config.adopted_containers}"
+        "--protected-containers",
+        "${user_config.protected_containers}"
       ]
     }
   }

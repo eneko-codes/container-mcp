@@ -6,13 +6,22 @@ public enum ConfigurationState: Sendable, Equatable {
     case loaded(Configuration)
     /// The server was started without policy options, for example outside the plugin.
     case missing
-    /// The user left the plugin's "write tools" setting off.
-    case writeToolsDisabled
+    /// The user left the plugin's "write tools" setting off. The settings are still read,
+    /// so that the protected list keeps applying to the read tools.
+    case writeToolsDisabled(Configuration)
     case invalid(problem: String)
 
     public var configuration: Configuration? {
         if case .loaded(let configuration) = self { return configuration }
         return nil
+    }
+
+    /// The containers no tool may touch, whenever the settings could be read.
+    public var protectedContainers: [String] {
+        switch self {
+        case .loaded(let configuration), .writeToolsDisabled(let configuration): return configuration.protectedContainers
+        case .missing, .invalid: return []
+        }
     }
 }
 
@@ -21,7 +30,7 @@ public enum ConfigurationLoader {
     public static func load(arguments: [String]) -> ConfigurationState {
         guard !arguments.isEmpty else { return .missing }
         do {
-            guard try ConfigurationArguments.writeToolsEnabled(arguments) else { return .writeToolsDisabled }
+            let writeToolsEnabled = try ConfigurationArguments.writeToolsEnabled(arguments)
             var configuration = try ConfigurationArguments.parse(arguments)
             for index in configuration.mountRoots.indices {
                 let root = configuration.mountRoots[index]
@@ -30,10 +39,10 @@ public enum ConfigurationLoader {
                 }
                 configuration.mountRoots[index].resolvedPath = resolved
             }
-            for name in configuration.adoptedContainers where !ContainerName.isValid(name) {
-                return .invalid(problem: "adopted container name \"\(name)\" is not a valid container name")
+            for name in configuration.protectedContainers where !ContainerName.isValid(name) {
+                return .invalid(problem: "protected container name \"\(name)\" is not a valid container name")
             }
-            return .loaded(configuration)
+            return writeToolsEnabled ? .loaded(configuration) : .writeToolsDisabled(configuration)
         } catch {
             return .invalid(problem: "\(error)")
         }
