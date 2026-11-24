@@ -66,7 +66,7 @@ cannot silently drop a limit.
 | `log_max_lines`, `log_max_bytes` | The most a log call returns | 500, 65536 |
 | `exec_timeout_seconds`, `exec_max_output_bytes` | Default and maximum time an exec may run before it is killed, and the most stdout plus stderr it returns | 60, 65536 |
 | `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned | 600, 1800 |
-| `protected_containers` | Containers the server did not create that it may start and stop, never exec into or delete | none |
+| `protected_containers` | Containers no tool may touch: no start, stop, exec, delete, inspect, logs or stats. Listing shows only their name and status. Every other container may be managed. | none |
 
 Claude Code passes list options as one comma-separated argument, so a folder whose path
 contains a comma cannot be listed.
@@ -91,8 +91,8 @@ schema. Annotations: R read-only, D destructive, I idempotent, O reaches the net
 | Tool | Inputs | Hints | Notes |
 |---|---|---|---|
 | `system_status` | – | R | Service running, versions, whether they match, configuration state |
-| `containers_list` | `all?` | R | Every container, with `owned` and `adopted` |
-| `container_inspect` | `id` | R | Environment values redacted to `KEY=<redacted>` |
+| `containers_list` | `all?` | R | Every container, with `owned`, `protected` and `infrastructure`; protected ones show only name and status |
+| `container_inspect` | `id` | R | Environment values redacted to `KEY=<redacted>`; refuses protected containers |
 | `container_logs` | `id`, `lines?`, `boot?` | R | Last lines, capped at the configured lines and bytes |
 | `container_stats` | `id` | R | One snapshot of a running container |
 | `images_list` | – | R | With `owned` and `infrastructure` |
@@ -100,15 +100,15 @@ schema. Annotations: R read-only, D destructive, I idempotent, O reaches the net
 | `volumes_list`, `networks_list` | – | R | With `owned` |
 | `disk_usage` | – | R | Images, containers, volumes |
 | `container_run` | `image`, `name`, `start?`, `command?[]`, `entrypoint?`, `env?[]`, `workdir?`, `user?`, `cpus?`, `memory_mib?`, `ports?[{host_port, container_port, protocol?}]`, `mounts?[{host_path, container_path, writable?}]`, `volumes?[{volume, container_path, read_only?}]`, `network?`, `read_only_rootfs?`, `init?` | O | Creates a labelled container, started in the background unless `start` is false |
-| `container_start` | `id` | I | Owned or adopted containers |
-| `container_stop` | `id`, `timeout_seconds?` | D, I | Owned or adopted containers |
-| `container_exec` | `id`, `command[]`, `env?[]`, `workdir?`, `user?`, `timeout_seconds?` | D | Owned, running containers; argument array; no TTY, no stdin |
+| `container_start` | `id` | I | Any container that is not protected or the container tool's own |
+| `container_stop` | `id`, `timeout_seconds?` | D, I | The same |
+| `container_exec` | `id`, `command[]`, `env?[]`, `workdir?`, `user?`, `timeout_seconds?` | D | Running containers that are not protected or the container tool's own; argument array; no TTY, no stdin |
 | `image_pull` | `reference`, `platform?` | I, O | Listed registries only; reports progress |
 | `image_build` | `context_path`, `tag`, `dockerfile?`, `build_args?[]`, `target?`, `no_cache?` | D, O | Context inside a mount root; reports progress; uses the shared `buildkit` container |
 | `volume_create` | `name`, `size_mib?` | – | Labelled |
 | `network_create` | `name`, `internal?`, `subnet?` | – | Labelled |
 | `system_start` | – | I, O | Starts the service; never installs a kernel |
-| `container_delete` | `id` | D | Owned, stopped containers |
+| `container_delete` | `id` | D | Stopped containers that are not protected or the container tool's own |
 | `image_delete` | `reference` | D | Images the server pulled or built |
 | `volume_delete`, `network_delete` | `name` | D | Volumes and networks the server created |
 
@@ -136,11 +136,14 @@ limit off in turn and checks that a test then fails.
    Volumes the server did not create cannot be mounted.
 3. **Loopback only.** Every published port binds 127.0.0.1; the input has no field for an
    address. Host ports must be in the configured range.
-4. **Ownership.** Everything the server creates carries `container-mcp.managed-by=container-mcp`.
-   Start, stop, exec and delete refuse containers without it, except that adopted containers
-   may be started and stopped. Delete also refuses running containers. Listing, inspecting,
-   logs and stats work on every container. Volumes, networks and images the server did not
-   create (images: did not pull while absent, or build) cannot be deleted.
+4. **Ownership.** Containers listed as protected cannot be touched by any tool: not
+   started, stopped, exec'd into, deleted, inspected, read for logs or stats, and listing shows
+   only their name and status. The list applies even while write tools are off. The container
+   tool's own containers (labelled with a `com.apple.container` role or plugin, such as
+   `buildkit`) can be read but never changed. Every other container may be managed; delete
+   refuses running ones. Everything the server creates carries
+   `container-mcp.managed-by=container-mcp`, and volumes, networks and images the server did
+   not create (images: did not pull while absent, or build) cannot be deleted.
 5. **No host environment.** Environment variables and build arguments only as `KEY=value`;
    the key-only form is refused. At startup the server also removes from its own process
    every environment variable except `HOME`, `USER`, `LOGNAME`, `TMPDIR` and a fixed `PATH`,
@@ -194,6 +197,9 @@ the service do through these tools. It does **not** protect against:
   stop a model from following instructions written there.
 - **Resource exhaustion by count.** Each run is capped, but the number of containers,
   volumes and images is not. A volume's default size is the service's (sparse, 512 GiB).
+- **Containers you did not protect.** Any container that is not listed as protected can be
+  stopped or deleted through the tools, including ones you made yourself. List the ones that
+  matter.
 - **The shared builder.** `image_build` uses the container tool's own `buildkit` container
   and may delete and recreate it when its settings differ, as `container build` does.
 - **Tampering with the audit log.** It is append-only for the server, not tamper-evident.

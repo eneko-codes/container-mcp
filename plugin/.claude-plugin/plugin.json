@@ -142,8 +142,8 @@
     "protected_containers": {
       "type": "string",
       "multiple": true,
-      "title": "Your containers Claude may start and stop",
-      "description": "Container names. Claude may start and stop these, never exec into or delete them.",
+      "title": "Containers Claude must never touch",
+      "description": "Container names. Claude can see that they exist but cannot start, stop, run commands in, read, or delete them. Every other container can be managed.",
       "default": []
     }
   }
