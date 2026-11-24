@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+Package.resolved.orig
+*.xcodeproj
+xcuserdata/
+.DS_Store
+# The plugin's server binary is built locally, never committed.
+plugin/server/
