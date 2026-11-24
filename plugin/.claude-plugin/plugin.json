@@ -146,5 +146,7 @@
       "description": "Container names. Claude can see that they exist but cannot start, stop, run commands in, read, or delete them. Every other container can be managed.",
       "default": []
     }
-  }
+  },
+  "license": "MIT",
+  "repository": "https://github.com/eneko-codes/container-mcp"
 }

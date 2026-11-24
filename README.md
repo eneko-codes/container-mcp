@@ -232,3 +232,7 @@ and writable folders must be the scratch folder's `readonly` and `writable` subf
 | `Tests/ContainerMCPIntegrationTests` | The opt-in live test |
 | `Scripts` | The limit kill-check |
 | `plugin` | The Claude plugin: manifest, MCP server entry and skills |
+
+## License
+
+MIT. See `LICENSE`.
