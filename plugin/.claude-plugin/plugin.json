@@ -2,7 +2,7 @@
   "name": "container-mcp",
   "displayName": "Apple container skills",
   "version": "0.2.0",
-  "description": "Skills for running containers and building images with the Apple container server desktop extension, which provides the tools.",
+  "description": "Skills for running containers and building images with the Apple container desktop extension, which provides the tools.",
   "author": {
     "name": "eneko-codes"
   },

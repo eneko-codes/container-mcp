@@ -32,7 +32,7 @@ it from chat, Cowork and the Code tab. Chats run inside a Linux VM, so a server 
 plugin would never reach the container service on the Mac.
 
 ```bash
-make mcpb          # dist/container-mcp.mcpb, the "Apple container server" extension
+make mcpb          # dist/container-mcp.mcpb, the "Apple container" extension
 make plugin-zip    # dist/container-mcp-skills.zip, the "Apple container skills" plugin
 ```
 
@@ -48,7 +48,7 @@ speaks MCP over stdio, and its diagnostics go to stderr.
 ## Configuration
 
 The policy is set in the extension's settings: in the install dialog, and afterwards under
-Settings → Extensions → Apple container server. The desktop app passes them to the server as
+Settings → Extensions → Apple container. The desktop app passes them to the server as
 launch arguments when it starts it. The server reads them once; no tool can change them.
 
 Write tools stay off until you turn on **Allow write tools**. Until then, and whenever the

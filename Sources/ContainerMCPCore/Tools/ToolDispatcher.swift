@@ -68,7 +68,7 @@ public actor ToolDispatcher {
         case .loaded(let configuration):
             return Policy(configuration: configuration, paths: paths)
         case .missing:
-            throw Refusal(.configurationMissing, "the server was started without policy settings, so only read tools work", allowed: "read tools; write tools when the server runs as the Apple container server extension")
+            throw Refusal(.configurationMissing, "the server was started without policy settings, so only read tools work", allowed: "read tools; write tools when the server runs as the Apple container extension")
         case .writeToolsDisabled:
             throw Refusal(.configurationWriteToolsOff, "write tools are switched off in the extension's settings", allowed: "read tools; write tools once the user turns on \"Allow write tools\" in the extension settings")
         case .invalid(let problem):

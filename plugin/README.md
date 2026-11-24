@@ -1,7 +1,7 @@
 # container-mcp skills plugin
 
 The two skills for working with container-mcp, packaged as a Claude plugin with no server.
-The server itself ships separately as the **Apple container server** desktop extension
+The server itself ships separately as the **Apple container** desktop extension
 (`make mcpb` at the repository root), which the desktop app runs on this Mac for chat,
 Cowork and the Code tab.
 
