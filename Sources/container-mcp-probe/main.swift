@@ -119,7 +119,7 @@ let hostPort = 18_000 + Int.random(in: 0..<999)
 
 print("\n## read tools")
 let status = await call("system_status")
-await call("containers_list", ["all": true])
+let initialList = await call("containers_list", ["all": true])
 await call("images_list")
 await call("volumes_list")
 await call("networks_list")
@@ -187,6 +187,15 @@ await call("image_delete", ["reference": .string("\(name):1")])
 await call("image_delete", ["reference": .string(image)])
 
 print("\n## checks")
+// The build starts the shared builder; the policy forbids this client to stop it, so it can
+// only say when a run left it running.
+func builderRunning(_ listing: String) -> Bool {
+    let containers = object(listing)["containers"] as? [[String: Any]] ?? []
+    return containers.contains { ($0["id"] as? String) == "buildkit" && ($0["status"] as? String) == "running" }
+}
+if !builderRunning(initialList) && builderRunning(await call("containers_list", ["all": true])) {
+    print("buildkit was stopped before this run and is running now: stop it with `container stop buildkit`")
+}
 let allTools = Set(tools.map(\.name))
 let missing = allTools.subtracting(calledTools).sorted()
 print("tools called: \(calledTools.count) of \(allTools.count)\(missing.isEmpty ? "" : ", not called: \(missing.joined(separator: ", "))")")
