@@ -1,0 +1,12 @@
+{
+  "name": "container-mcp",
+  "description": "Local marketplace for the container-mcp plugin, built from this repository.",
+  "owner": { "name": "eneko-codes" },
+  "plugins": [
+    {
+      "name": "container-mcp",
+      "source": "./plugin",
+      "description": "Manage Apple container's Linux containers through a policy-checked local MCP server."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "container": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/server/container-mcp"
+    }
+  }
+}

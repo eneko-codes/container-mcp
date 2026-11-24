@@ -1,0 +1,8 @@
+{
+  "name": "container-mcp",
+  "displayName": "Apple container",
+  "version": "0.1.0",
+  "description": "Manage the Linux containers of Apple's container tool on this Mac through a local MCP server with a fixed security policy, plus skills for running containers and building images.",
+  "author": { "name": "eneko-codes" },
+  "keywords": ["containers", "apple-container", "mcp", "macos"]
+}
