@@ -1,5 +1,5 @@
 # Builds the server in release mode and puts it where the plugin's MCP entry starts it.
-.PHONY: plugin test
+.PHONY: plugin plugin-zip test
 plugin:
 	swift build -c release --product container-mcp
 	mkdir -p plugin/server
@@ -10,3 +10,9 @@ plugin:
 
 test:
 	swift test
+
+# The plugin folder with its built server, as a zip for Customize > Plugins > Upload plugin.
+plugin-zip: plugin
+	mkdir -p dist
+	rm -f dist/container-mcp-plugin.zip
+	cd plugin && zip -qr -X ../dist/container-mcp-plugin.zip . -x '.DS_Store' '*/.DS_Store'
