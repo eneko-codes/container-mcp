@@ -132,7 +132,7 @@ custom kernels or init images, Rosetta overrides or a host address for ports.
 ## Limits
 
 Each limit is enforced in `Sources/ContainerMCPCore/Policy` and has unit tests in
-`Tests/ContainerMCPCoreTests` named after it. `Scripts/check_limit_tests.py` switches each
+`Tests/ContainerMCPCoreTests` named after it. `Scripts/check-limit-tests.swift` switches each
 limit off in turn and checks that a test then fails.
 
 1. **The configuration is yours.** One file at a fixed path, read at startup, never written
@@ -212,7 +212,7 @@ the service do through these tools. It does **not** protect against:
 ```bash
 swift test                                       # unit tests, fake backend
 CONTAINER_MCP_INTEGRATION=1 swift test           # plus the live test against the real service
-Scripts/check_limit_tests.py                     # every limit has a test that catches its removal
+swift Scripts/check-limit-tests.swift            # every limit has a test that catches its removal
 .build/release/container-mcp-probe .build/release/container-mcp <scratch folder>
 ```
 
