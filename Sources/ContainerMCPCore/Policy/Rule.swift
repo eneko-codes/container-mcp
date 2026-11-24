@@ -5,6 +5,7 @@ import Foundation
 public enum Rule: String, Sendable, Codable, CaseIterable {
     case configurationMissing = "config.missing"
     case configurationInvalid = "config.invalid"
+    case configurationWriteToolsOff = "config.write-tools-off"
     case serviceVersionMismatch = "service.version-mismatch"
     case inputInvalid = "input.invalid"
     case mountOutsideRoots = "mount.outside-roots"

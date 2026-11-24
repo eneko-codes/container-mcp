@@ -54,7 +54,7 @@ import Testing
         defer { fixture.remove() }
         for path in [
             fixture.home, "/", fixture.home + "/.ssh", fixture.home + "/Library", fixture.home + "/Library/Keychains",
-            fixture.paths.configurationDirectory, fixture.paths.auditDirectory, fixture.base,
+            fixture.paths.stateDirectory, fixture.paths.auditDirectory, fixture.home + "/.claude", fixture.base,
         ] {
             #expect(rule(approve(fixture, path)) == .mountProtected, "\(path) must be refused")
         }
@@ -64,6 +64,16 @@ import Testing
         let fixture = try await Fixture()
         defer { fixture.remove() }
         #expect(rule(approve(fixture, fixture.home + "/LIBRARY")) == .mountProtected)
+    }
+
+    /// The plugin's settings live in Claude Code's user settings; a container that could write
+    /// them could loosen its own policy, wherever the settings file really lives.
+    @Test func claudeSettingsAreProtectedThroughTheirSymlink() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.remove() }
+        #expect(rule(approve(fixture, fixture.readOnlyRoot + "/dotfiles")) == .mountProtected)
+        #expect(rule(approve(fixture, fixture.readOnlyRoot + "/dotfiles/claude", writable: false)) == .mountProtected)
+        #expect(rule(approve(fixture, fixture.readOnlyRoot + "/project")) == nil)
     }
 
     @Test func protectedFolderInsideARootIsRefused() async throws {

@@ -19,14 +19,17 @@ _ = fcntl(protocolOutput, F_SETFD, FD_CLOEXEC)
 HostEnvironment.scrub()
 
 let paths = ServerPaths.forCurrentUser()
-let configurationState = ConfigurationLoader.load(path: paths.configurationFile)
+// The plugin passes the user's settings as launch arguments; read them before anything else.
+let configurationState = ConfigurationLoader.load(arguments: Array(CommandLine.arguments.dropFirst()))
 switch configurationState {
 case .loaded:
-    FileHandle.standardError.write(Data("container-mcp: configuration loaded from \(paths.configurationFile)\n".utf8))
-case .missing(let path):
-    FileHandle.standardError.write(Data("container-mcp: no configuration at \(path); only read tools work\n".utf8))
-case .invalid(let path, let problem):
-    FileHandle.standardError.write(Data("container-mcp: invalid configuration at \(path) (\(problem)); only read tools work\n".utf8))
+    FileHandle.standardError.write(Data("container-mcp: policy loaded from the plugin settings\n".utf8))
+case .missing:
+    FileHandle.standardError.write(Data("container-mcp: started without policy settings; only read tools work\n".utf8))
+case .writeToolsDisabled:
+    FileHandle.standardError.write(Data("container-mcp: write tools are off in the plugin settings; only read tools work\n".utf8))
+case .invalid(let problem):
+    FileHandle.standardError.write(Data("container-mcp: invalid plugin settings (\(problem)); only read tools work\n".utf8))
 }
 
 let dispatcher = ToolDispatcher(

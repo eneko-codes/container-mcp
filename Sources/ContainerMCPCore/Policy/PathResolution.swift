@@ -35,17 +35,16 @@ public struct ServerPaths: Sendable, Equatable {
     public static let serverName = "container-mcp"
 
     public let home: String
-    public let configurationDirectory: String
-    public let configurationFile: String
+    /// Holds the server's own state, never the policy, which comes from the plugin's settings.
+    public let stateDirectory: String
     public let stateFile: String
     public let auditDirectory: String
     public let auditFile: String
 
     public init(home: String) {
         self.home = home
-        configurationDirectory = home + "/Library/Application Support/" + Self.serverName
-        configurationFile = configurationDirectory + "/config.json"
-        stateFile = configurationDirectory + "/state.json"
+        stateDirectory = home + "/Library/Application Support/" + Self.serverName
+        stateFile = stateDirectory + "/state.json"
         auditDirectory = home + "/Library/Logs/" + Self.serverName
         auditFile = auditDirectory + "/audit.jsonl"
     }
@@ -67,8 +66,14 @@ public struct ServerPaths: Sendable, Equatable {
     /// refused for that reason.
     public func protectedPaths(containerApplicationRoot: String?) -> [String] {
         var paths = [
-            configurationDirectory,
+            stateDirectory,
             auditDirectory,
+            // Claude Code's user settings hold the policy (pluginConfigs); a container that could
+            // write them could loosen its own limits. The settings file may be a symlink, so its
+            // real folder is protected too.
+            home + "/.claude",
+            ((PathResolution.resolveExisting(home + "/.claude/settings.json") ?? home + "/.claude/settings.json") as NSString)
+                .deletingLastPathComponent,
             home + "/.ssh",
             home + "/Library",
             "/Library/Keychains",

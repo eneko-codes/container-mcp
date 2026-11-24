@@ -36,6 +36,11 @@ struct Fixture {
             try manager.createDirectory(atPath: home + "/" + folder, withIntermediateDirectories: true)
         }
         try manager.createSymbolicLink(atPath: home + "/Code/escape", withDestinationPath: home + "/.ssh")
+        // Claude Code's settings, kept elsewhere and linked in, as a dotfiles setup does.
+        try manager.createDirectory(atPath: home + "/Code/dotfiles/claude", withIntermediateDirectories: true)
+        try manager.createDirectory(atPath: home + "/.claude", withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: URL(fileURLWithPath: home + "/Code/dotfiles/claude/settings.json"))
+        try manager.createSymbolicLink(atPath: home + "/.claude/settings.json", withDestinationPath: home + "/Code/dotfiles/claude/settings.json")
         try manager.createSymbolicLink(atPath: home + "/Code/outside-link", withDestinationPath: home + "/Outside")
         try Data("FROM alpine:3.20\nRUN true\n".utf8).write(to: URL(fileURLWithPath: home + "/Code/build/Dockerfile"))
 

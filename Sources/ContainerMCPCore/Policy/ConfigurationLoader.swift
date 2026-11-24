@@ -1,12 +1,14 @@
-import Darwin
 import Foundation
 
-/// The outcome of reading the configuration at startup. Anything but `.loaded` leaves the
-/// server in read-only mode.
+/// The outcome of reading the policy at startup. Anything but `.loaded` leaves the server in
+/// read-only mode.
 public enum ConfigurationState: Sendable, Equatable {
     case loaded(Configuration)
-    case missing(path: String)
-    case invalid(path: String, problem: String)
+    /// The server was started without policy options, for example outside the plugin.
+    case missing
+    /// The user left the plugin's "write tools" setting off.
+    case writeToolsDisabled
+    case invalid(problem: String)
 
     public var configuration: Configuration? {
         if case .loaded(let configuration) = self { return configuration }
@@ -15,40 +17,25 @@ public enum ConfigurationState: Sendable, Equatable {
 }
 
 public enum ConfigurationLoader {
-    /// Reads and validates the file at `path`. The file must belong to the current user and
-    /// must not be writable by group or others, so that only the user can set the policy.
-    public static func load(path: String) -> ConfigurationState {
-        var info = stat()
-        guard lstat(path, &info) == 0 else {
-            return errno == ENOENT ? .missing(path: path) : .invalid(path: path, problem: "cannot read the file")
-        }
-        guard (info.st_mode & S_IFMT) == S_IFREG else {
-            return .invalid(path: path, problem: "the configuration must be a regular file, not a symlink or folder")
-        }
-        guard info.st_uid == getuid() else {
-            return .invalid(path: path, problem: "the file must belong to the current user")
-        }
-        guard (info.st_mode & (S_IWGRP | S_IWOTH)) == 0 else {
-            return .invalid(path: path, problem: "the file must not be writable by group or others (chmod 600)")
-        }
-        guard let data = FileManager.default.contents(atPath: path) else {
-            return .invalid(path: path, problem: "cannot read the file")
-        }
+    /// Reads the policy from the server's launch arguments.
+    public static func load(arguments: [String]) -> ConfigurationState {
+        guard !arguments.isEmpty else { return .missing }
         do {
-            var configuration = try ConfigurationFile.decode(data)
+            guard try ConfigurationArguments.writeToolsEnabled(arguments) else { return .writeToolsDisabled }
+            var configuration = try ConfigurationArguments.parse(arguments)
             for index in configuration.mountRoots.indices {
                 let root = configuration.mountRoots[index]
                 guard let resolved = PathResolution.resolveExisting(root.path) else {
-                    return .invalid(path: path, problem: "mount root \(root.path) does not exist")
+                    return .invalid(problem: "the folder \(root.path) does not exist")
                 }
                 configuration.mountRoots[index].resolvedPath = resolved
             }
             for name in configuration.adoptedContainers where !ContainerName.isValid(name) {
-                return .invalid(path: path, problem: "adopted container name \"\(name)\" is not a valid container name")
+                return .invalid(problem: "adopted container name \"\(name)\" is not a valid container name")
             }
             return .loaded(configuration)
         } catch {
-            return .invalid(path: path, problem: "\(error)")
+            return .invalid(problem: "\(error)")
         }
     }
 }

@@ -24,14 +24,24 @@ let paths = "Sources/ContainerMCPCore/Policy/PathResolution.swift"
 let arguments = "Sources/ContainerMCPCore/Tools/Arguments.swift"
 let audit = "Sources/ContainerMCPCore/Audit/AuditLog.swift"
 let rule = "Sources/ContainerMCPCore/Policy/Rule.swift"
+let loader = "Sources/ContainerMCPCore/Policy/ConfigurationLoader.swift"
 
 let mutations: [Mutation] = [
     Mutation(limit: "1", description: "write tools work without a configuration", file: dispatcher,
              find: "throw Refusal(.configurationMissing,",
              replace: "return Policy(configuration: Configuration(mountRoots: [], hostPorts: .init(minimum: 1024, maximum: 65535), registries: [], resources: .init(defaultCPUs: 1, maximumCPUs: 1, defaultMemoryMiB: 200, maximumMemoryMiB: 200), logs: .init(maximumLines: 1, maximumBytes: 1), exec: .init(maximumTimeoutSeconds: 1, maximumOutputBytes: 1), pullTimeoutSeconds: 1, buildTimeoutSeconds: 1, adoptedContainers: []), paths: paths); _ = Refusal(.configurationMissing,"),
-    Mutation(limit: "1", description: "unknown configuration keys are accepted", file: configuration,
-             find: "if let unknown = object.keys.sorted().first(where: { !allowed.contains($0) }) {",
-             replace: "if let unknown = Optional<String>.none {"),
+    Mutation(limit: "1", description: "unknown options are accepted", file: configuration,
+             find: "guard options.contains(name) else {",
+             replace: "guard true else {"),
+    Mutation(limit: "1", description: "write tools work when switched off", file: loader,
+             find: "guard try ConfigurationArguments.writeToolsEnabled(arguments) else { return .writeToolsDisabled }",
+             replace: "_ = try ConfigurationArguments.writeToolsEnabled(arguments)"),
+    Mutation(limit: "2", description: "Claude's settings folder is not protected", file: paths,
+             find: "            home + \"/.claude\",\n",
+             replace: ""),
+    Mutation(limit: "2", description: "the real folder of a linked settings file is not protected", file: paths,
+             find: "((PathResolution.resolveExisting(home + \"/.claude/settings.json\") ?? home + \"/.claude/settings.json\") as NSString)\n                .deletingLastPathComponent,",
+             replace: ""),
     Mutation(limit: "2", description: "protected folders are not checked", file: policy,
              find: "for protectedPath in protected {",
              replace: "for protectedPath in [String]() {"),

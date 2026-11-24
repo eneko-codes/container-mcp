@@ -3,130 +3,110 @@ import Testing
 
 @testable import ContainerMCPCore
 
-/// Limit 1: the configuration is the user's. Read once from a fixed path, never written by a
-/// tool; without it only read tools work.
+/// Limit 1: the policy is the user's. It comes from the plugin's settings as launch arguments,
+/// is read once, can be changed by no tool, and without it, or with write tools switched off,
+/// only read tools work.
 @Suite struct ConfigurationTests {
-    static let validJSON = """
-        {
-          "version": 1,
-          "mountRoots": [{ "path": "/tmp", "writable": false }],
-          "hostPorts": { "min": 8000, "max": 8999 },
-          "registries": ["docker.io"],
-          "resources": { "defaultCpus": 2, "maxCpus": 4, "defaultMemoryMiB": 1024, "maxMemoryMiB": 4096 },
-          "logs": { "maxLines": 500, "maxBytes": 65536 },
-          "exec": { "timeoutSeconds": 60, "maxOutputBytes": 65536 },
-          "pull": { "timeoutSeconds": 600 },
-          "build": { "timeoutSeconds": 1800 },
-          "adopted": ["example-db"]
-        }
-        """
-
-    func write(_ text: String, mode: Int16 = 0o600) throws -> String {
-        let path = NSTemporaryDirectory() + "container-mcp-config-\(UUID().uuidString).json"
-        try Data(text.utf8).write(to: URL(fileURLWithPath: path))
-        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: path)
-        return path
+    /// What the plugin passes with its default settings and write tools on.
+    static func arguments(_ overrides: [String: String] = [:]) -> [String] {
+        var values: [String: String] = [
+            "write-tools-enabled": "true", "read-only-folders": "/tmp", "writable-folders": "",
+            "host-port-min": "8000", "host-port-max": "8999", "registries": "docker.io,ghcr.io",
+            "default-cpus": "2", "max-cpus": "4", "default-memory-mib": "1024", "max-memory-mib": "4096",
+            "log-max-lines": "500", "log-max-bytes": "65536", "exec-timeout-seconds": "60",
+            "exec-max-output-bytes": "65536", "pull-timeout-seconds": "600", "build-timeout-seconds": "1800",
+            "adopted-containers": "example-db",
+        ]
+        for (key, value) in overrides { values[key] = value }
+        return ConfigurationArguments.options.flatMap { name in values[name].map { ["--\(name)", $0] } ?? [] }
     }
 
-    @Test func validFileLoads() throws {
-        let path = try write(Self.validJSON)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        let state = ConfigurationLoader.load(path: path)
-        let configuration = try #require(state.configuration)
-        #expect(configuration.mountRoots.first?.resolvedPath == "/private/tmp")
+    @Test func pluginSettingsLoad() throws {
+        let configuration = try #require(ConfigurationLoader.load(arguments: Self.arguments()).configuration)
+        #expect(configuration.mountRoots == [.init(path: "/tmp", resolvedPath: "/private/tmp", writable: false)])
+        #expect(configuration.registries == ["docker.io", "ghcr.io"])
         #expect(configuration.adoptedContainers == ["example-db"])
+        #expect(configuration.hostPorts == .init(minimum: 8000, maximum: 8999))
     }
 
-    @Test func missingFileIsReportedAsMissing() {
-        #expect(ConfigurationLoader.load(path: "/nonexistent/container-mcp/config.json") == .missing(path: "/nonexistent/container-mcp/config.json"))
+    @Test func listsAreSplitOnCommasAndEmptyListsAreEmpty() throws {
+        let configuration = try #require(
+            ConfigurationLoader.load(arguments: Self.arguments(["read-only-folders": "/tmp, /usr", "writable-folders": "/private/tmp", "adopted-containers": ""])).configuration)
+        #expect(configuration.mountRoots.map(\.path) == ["/tmp", "/usr", "/private/tmp"])
+        #expect(configuration.mountRoots.map(\.writable) == [false, false, true])
+        #expect(configuration.adoptedContainers.isEmpty)
     }
 
-    @Test func unknownKeyMakesTheFileInvalid() throws {
-        let path = try write(Self.validJSON.replacingOccurrences(of: "\"adopted\"", with: "\"adoptd\""))
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        guard case .invalid(_, let problem) = ConfigurationLoader.load(path: path) else {
+    @Test func noArgumentsMeansMissing() {
+        #expect(ConfigurationLoader.load(arguments: []) == .missing)
+    }
+
+    @Test func writeToolsOffMeansDisabled() {
+        #expect(ConfigurationLoader.load(arguments: Self.arguments(["write-tools-enabled": "false"])) == .writeToolsDisabled)
+    }
+
+    @Test func unknownOptionMakesTheSettingsInvalid() {
+        guard case .invalid(let problem) = ConfigurationLoader.load(arguments: Self.arguments() + ["--allow-everything", "true"]) else {
             Issue.record("expected invalid")
             return
         }
-        #expect(problem.contains("adoptd"))
+        #expect(problem.contains("allow-everything"))
     }
 
-    @Test func nestedUnknownKeyMakesTheFileInvalid() throws {
-        let path = try write(Self.validJSON.replacingOccurrences(of: "\"maxLines\"", with: "\"maxLines\": 1, \"extra\""))
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        #expect(ConfigurationLoader.load(path: path).configuration == nil)
+    @Test func missingOrRepeatedOptionMakesTheSettingsInvalid() {
+        let withoutPorts = Self.arguments().enumerated().filter { index, _ in
+            let pairStart = index - index % 2
+            return Self.arguments()[pairStart] != "--host-port-max"
+        }.map(\.element)
+        #expect(ConfigurationLoader.load(arguments: withoutPorts).configuration == nil)
+        #expect(ConfigurationLoader.load(arguments: Self.arguments() + ["--max-cpus", "64"]).configuration == nil)
+        #expect(ConfigurationLoader.load(arguments: Array(Self.arguments().dropLast())).configuration == nil)
     }
 
-    @Test func groupWritableFileIsRefused() throws {
-        let path = try write(Self.validJSON, mode: 0o664)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        guard case .invalid(_, let problem) = ConfigurationLoader.load(path: path) else {
-            Issue.record("expected invalid")
-            return
+    @Test func badValuesMakeTheSettingsInvalid() {
+        for override in [
+            ["read-only-folders": "relative/path"], ["read-only-folders": "/nonexistent-container-mcp"],
+            ["host-port-min": "80"], ["host-port-min": "9000", "host-port-max": "8000"], ["max-cpus": "four"],
+            ["default-memory-mib": "100"], ["write-tools-enabled": "yes"], ["registries": "docker.io/library"],
+            ["adopted-containers": "-bad name"],
+        ] {
+            #expect(ConfigurationLoader.load(arguments: Self.arguments(override)).configuration == nil, "\(override)")
         }
-        #expect(problem.contains("writable by group or others"))
     }
 
-    @Test func symlinkedFileIsRefused() throws {
-        let target = try write(Self.validJSON)
-        let link = target + ".link"
-        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
-        defer {
-            try? FileManager.default.removeItem(atPath: target)
-            try? FileManager.default.removeItem(atPath: link)
+    @Test func withoutSettingsOnlyReadToolsWork() async throws {
+        for state in [ConfigurationState.missing, .writeToolsDisabled] {
+            let fixture = try await Fixture(containers: [Fixture.owned("web")], configurationState: state)
+            defer { fixture.remove() }
+            for tool in ToolName.allCases where tool.isReadOnly && ![.containerStats, .containerInspect, .imageInspect, .containerLogs].contains(tool) {
+                #expect(await fixture.call(tool).isError != true, "\(tool.rawValue) should work in state \(state)")
+            }
+            #expect(await fixture.call(.containerLogs, ["id": "web"]).isError != true)
+            let expected: Rule = state == .missing ? .configurationMissing : .configurationWriteToolsOff
+            for tool in ToolName.allCases where !tool.isReadOnly {
+                #expect(await fixture.call(tool).refused(by: expected), "\(tool.rawValue) must be refused in state \(state)")
+            }
+            #expect(await fixture.backend.calls.isEmpty)
         }
-        #expect(ConfigurationLoader.load(path: link).configuration == nil)
     }
 
-    @Test func relativeMountRootIsRefused() throws {
-        let path = try write(Self.validJSON.replacingOccurrences(of: "\"/tmp\"", with: "\"tmp\""))
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        #expect(ConfigurationLoader.load(path: path).configuration == nil)
-    }
-
-    @Test func configurationLivesAtTheFixedPath() {
-        let paths = ServerPaths(home: "/Users/user")
-        #expect(paths.configurationFile == "/Users/user/Library/Application Support/container-mcp/config.json")
-    }
-
-    @Test func withoutConfigurationOnlyReadToolsWork() async throws {
-        let fixture = try await Fixture(
-            containers: [Fixture.owned("web")], configurationState: .missing(path: "/x/config.json"))
-        defer { fixture.remove() }
-
-        for tool in ToolName.allCases where tool.isReadOnly && tool != .containerStats && tool != .containerInspect && tool != .imageInspect && tool != .containerLogs {
-            let result = await fixture.call(tool)
-            #expect(result.isError != true, "\(tool.rawValue) should work without configuration")
-        }
-        #expect(await fixture.call(.containerLogs, ["id": "web"]).isError != true)
-
-        for tool in ToolName.allCases where !tool.isReadOnly {
-            let result = await fixture.call(tool)
-            #expect(result.refused(by: .configurationMissing), "\(tool.rawValue) must be refused without configuration")
-        }
-        #expect(await fixture.backend.calls.isEmpty)
-    }
-
-    @Test func invalidConfigurationAlsoRefusesWriteTools() async throws {
-        let fixture = try await Fixture(configurationState: .invalid(path: "/x/config.json", problem: "bad"))
+    @Test func invalidSettingsAlsoRefuseWriteTools() async throws {
+        let fixture = try await Fixture(configurationState: .invalid(problem: "bad"))
         defer { fixture.remove() }
         #expect(await fixture.call(.volumeCreate, ["name": "data"]).refused(by: .configurationInvalid))
         #expect(await fixture.call(.volumesList).isError != true)
     }
 
-    /// No tool has a way to reach the configuration file: running every tool leaves it untouched.
-    @Test func noToolWritesTheConfiguration() async throws {
+    /// No tool has a parameter that reaches the policy: the dispatcher's policy is fixed at
+    /// startup, so every tool run leaves it as it was.
+    @Test func noToolChangesThePolicy() async throws {
         let fixture = try await Fixture(containers: [Fixture.owned("web", status: "stopped")])
         defer { fixture.remove() }
-        let file = fixture.paths.configurationFile
-        try Data(Self.validJSON.utf8).write(to: URL(fileURLWithPath: file))
-        let before = try Data(contentsOf: URL(fileURLWithPath: file))
-        let attributesBefore = try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date
-
         for tool in ToolName.allCases {
             _ = await fixture.call(tool, ["id": "web", "name": "web", "reference": "alpine", "image": "alpine"])
         }
-        #expect(try Data(contentsOf: URL(fileURLWithPath: file)) == before)
-        #expect(try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date == attributesBefore)
+        let status = await fixture.call(.systemStatus).text
+        #expect(status.contains("\"hostPorts\" : {\n      \"max\" : 8999,\n      \"min\" : 8000"), "\(status)")
+        #expect(!ToolCatalog.tools.contains { $0.name.contains("config") || $0.name.contains("policy") || $0.name.contains("setting") })
     }
 }

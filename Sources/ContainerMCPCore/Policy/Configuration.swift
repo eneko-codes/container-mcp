@@ -1,6 +1,7 @@
 import Foundation
 
-/// The user's policy, read once at startup from a fixed path. No tool can change it.
+/// The user's policy, passed by the plugin as launch arguments from the plugin's settings and
+/// read once at startup. No tool can change it.
 public struct Configuration: Sendable, Equatable {
     public struct MountRoot: Sendable, Equatable {
         /// Absolute path as written in the file.
@@ -91,156 +92,126 @@ public struct Configuration: Sendable, Equatable {
     }
 }
 
-// MARK: - Strict JSON decoding
+// MARK: - Launch arguments
 
-/// Decodes the configuration file, refusing unknown keys at every level so that a typo
-/// can never silently drop a limit.
-enum ConfigurationFile {
-    struct Error: Swift.Error, CustomStringConvertible {
-        let description: String
+/// Reads the policy from `--option value` pairs, the form the plugin's MCP entry passes the
+/// saved plugin settings in. Every option must be present exactly once and unknown options
+/// are refused, so a typo can never silently drop a limit.
+public enum ConfigurationArguments {
+    public struct Error: Swift.Error, CustomStringConvertible {
+        public let description: String
     }
 
-    static func decode(_ data: Data) throws -> Configuration {
-        let object: Any
-        do {
-            object = try JSONSerialization.jsonObject(with: data)
-        } catch {
-            throw Error(description: "the file is not valid JSON")
+    /// Every option the server accepts, in the order the plugin passes them.
+    public static let options = [
+        "write-tools-enabled", "read-only-folders", "writable-folders", "host-port-min", "host-port-max",
+        "registries", "default-cpus", "max-cpus", "default-memory-mib", "max-memory-mib", "log-max-lines",
+        "log-max-bytes", "exec-timeout-seconds", "exec-max-output-bytes", "pull-timeout-seconds",
+        "build-timeout-seconds", "adopted-containers",
+    ]
+
+    /// Splits `arguments` into option values, refusing anything that is not a known `--option value` pair.
+    static func values(_ arguments: [String]) throws -> [String: String] {
+        guard arguments.count.isMultiple(of: 2) else {
+            throw Error(description: "options must come in --name value pairs")
         }
-        let root = try dictionary(object, at: "the top level")
-        try requireKeys(
-            root,
-            allowed: ["version", "mountRoots", "hostPorts", "registries", "resources", "logs", "exec", "pull", "build", "adopted"],
-            required: ["version", "mountRoots", "hostPorts", "registries", "resources", "logs", "exec", "pull", "build"],
-            at: "the top level")
+        var values: [String: String] = [:]
+        for index in stride(from: 0, to: arguments.count, by: 2) {
+            let flag = arguments[index]
+            guard flag.hasPrefix("--") else { throw Error(description: "\(flag) is not an option") }
+            let name = String(flag.dropFirst(2))
+            guard options.contains(name) else { throw Error(description: "unknown option --\(name)") }
+            guard values[name] == nil else { throw Error(description: "option --\(name) is given twice") }
+            values[name] = arguments[index + 1]
+        }
+        if let missing = options.first(where: { values[$0] == nil }) {
+            throw Error(description: "option --\(missing) is missing")
+        }
+        return values
+    }
 
-        let version = try integer(root["version"], at: "version")
-        guard version == 1 else { throw Error(description: "version must be 1") }
+    /// Whether the user switched the write tools on.
+    public static func writeToolsEnabled(_ arguments: [String]) throws -> Bool {
+        try boolean(try values(arguments), "write-tools-enabled")
+    }
 
-        let rootsArray = try array(root["mountRoots"], at: "mountRoots")
+    public static func parse(_ arguments: [String]) throws -> Configuration {
+        let values = try values(arguments)
+
         var mountRoots: [Configuration.MountRoot] = []
-        for (index, entry) in rootsArray.enumerated() {
-            let place = "mountRoots[\(index)]"
-            let rootObject = try dictionary(entry, at: place)
-            try requireKeys(rootObject, allowed: ["path", "writable"], required: ["path"], at: place)
-            let path = try string(rootObject["path"], at: "\(place).path")
-            guard path.hasPrefix("/") else { throw Error(description: "\(place).path must be an absolute path") }
-            let writable = try rootObject["writable"].map { try boolean($0, at: "\(place).writable") } ?? false
-            mountRoots.append(.init(path: path, writable: writable))
+        for (name, writable) in [("read-only-folders", false), ("writable-folders", true)] {
+            for path in list(values, name) {
+                guard path.hasPrefix("/") else { throw Error(description: "--\(name): \(path) must be an absolute path") }
+                mountRoots.append(.init(path: path, writable: writable))
+            }
         }
 
-        let ports = try dictionary(root["hostPorts"], at: "hostPorts")
-        try requireKeys(ports, allowed: ["min", "max"], required: ["min", "max"], at: "hostPorts")
         let portRange = Configuration.PortRange(
-            minimum: try integer(ports["min"], at: "hostPorts.min"),
-            maximum: try integer(ports["max"], at: "hostPorts.max"))
+            minimum: try integer(values, "host-port-min"), maximum: try integer(values, "host-port-max"))
         // Ports below 1024 need privileges on the host; refusing them keeps the range sane.
         guard (1024...65535).contains(portRange.minimum), (1024...65535).contains(portRange.maximum),
             portRange.minimum <= portRange.maximum
-        else { throw Error(description: "hostPorts must satisfy 1024 <= min <= max <= 65535") }
+        else { throw Error(description: "host ports must satisfy 1024 <= min <= max <= 65535") }
 
-        let registries = try array(root["registries"], at: "registries").enumerated().map { index, value in
-            try string(value, at: "registries[\(index)]")
-        }
-        for registry in registries where registry.isEmpty || registry.contains("/") {
+        let registries = list(values, "registries")
+        for registry in registries where registry.contains("/") || registry.contains(" ") {
             throw Error(description: "registries must be bare domain names such as docker.io")
         }
 
-        let resourcesObject = try dictionary(root["resources"], at: "resources")
-        try requireKeys(
-            resourcesObject, allowed: ["defaultCpus", "maxCpus", "defaultMemoryMiB", "maxMemoryMiB"],
-            required: ["defaultCpus", "maxCpus", "defaultMemoryMiB", "maxMemoryMiB"], at: "resources")
         let resources = Configuration.Resources(
-            defaultCPUs: try integer(resourcesObject["defaultCpus"], at: "resources.defaultCpus"),
-            maximumCPUs: try integer(resourcesObject["maxCpus"], at: "resources.maxCpus"),
-            defaultMemoryMiB: try integer(resourcesObject["defaultMemoryMiB"], at: "resources.defaultMemoryMiB"),
-            maximumMemoryMiB: try integer(resourcesObject["maxMemoryMiB"], at: "resources.maxMemoryMiB"))
+            defaultCPUs: try integer(values, "default-cpus"), maximumCPUs: try integer(values, "max-cpus"),
+            defaultMemoryMiB: try integer(values, "default-memory-mib"), maximumMemoryMiB: try integer(values, "max-memory-mib"))
         guard resources.defaultCPUs >= 1, resources.defaultCPUs <= resources.maximumCPUs else {
-            throw Error(description: "resources must satisfy 1 <= defaultCpus <= maxCpus")
+            throw Error(description: "CPUs must satisfy 1 <= default <= max")
         }
         // 200 MiB is the smallest memory the container runtime accepts.
         guard resources.defaultMemoryMiB >= 200, resources.defaultMemoryMiB <= resources.maximumMemoryMiB else {
-            throw Error(description: "resources must satisfy 200 <= defaultMemoryMiB <= maxMemoryMiB")
+            throw Error(description: "memory must satisfy 200 <= default <= max MiB")
         }
 
-        let logsObject = try dictionary(root["logs"], at: "logs")
-        try requireKeys(logsObject, allowed: ["maxLines", "maxBytes"], required: ["maxLines", "maxBytes"], at: "logs")
         let logs = Configuration.LogLimits(
-            maximumLines: try integer(logsObject["maxLines"], at: "logs.maxLines"),
-            maximumBytes: try integer(logsObject["maxBytes"], at: "logs.maxBytes"))
+            maximumLines: try integer(values, "log-max-lines"), maximumBytes: try integer(values, "log-max-bytes"))
         guard (1...100_000).contains(logs.maximumLines), (1...10_485_760).contains(logs.maximumBytes) else {
-            throw Error(description: "logs must satisfy 1 <= maxLines <= 100000 and 1 <= maxBytes <= 10485760")
+            throw Error(description: "logs must satisfy 1 <= lines <= 100000 and 1 <= bytes <= 10485760")
         }
 
-        let execObject = try dictionary(root["exec"], at: "exec")
-        try requireKeys(
-            execObject, allowed: ["timeoutSeconds", "maxOutputBytes"], required: ["timeoutSeconds", "maxOutputBytes"],
-            at: "exec")
         let exec = Configuration.ExecLimits(
-            maximumTimeoutSeconds: try integer(execObject["timeoutSeconds"], at: "exec.timeoutSeconds"),
-            maximumOutputBytes: try integer(execObject["maxOutputBytes"], at: "exec.maxOutputBytes"))
+            maximumTimeoutSeconds: try integer(values, "exec-timeout-seconds"),
+            maximumOutputBytes: try integer(values, "exec-max-output-bytes"))
         guard (1...3600).contains(exec.maximumTimeoutSeconds), (1...10_485_760).contains(exec.maximumOutputBytes) else {
-            throw Error(description: "exec must satisfy 1 <= timeoutSeconds <= 3600 and 1 <= maxOutputBytes <= 10485760")
+            throw Error(description: "exec must satisfy 1 <= timeout <= 3600 seconds and 1 <= output <= 10485760 bytes")
         }
 
-        let pull = try dictionary(root["pull"], at: "pull")
-        try requireKeys(pull, allowed: ["timeoutSeconds"], required: ["timeoutSeconds"], at: "pull")
-        let pullTimeout = try integer(pull["timeoutSeconds"], at: "pull.timeoutSeconds")
-        let build = try dictionary(root["build"], at: "build")
-        try requireKeys(build, allowed: ["timeoutSeconds"], required: ["timeoutSeconds"], at: "build")
-        let buildTimeout = try integer(build["timeoutSeconds"], at: "build.timeoutSeconds")
+        let pullTimeout = try integer(values, "pull-timeout-seconds")
+        let buildTimeout = try integer(values, "build-timeout-seconds")
         guard (1...86_400).contains(pullTimeout), (1...86_400).contains(buildTimeout) else {
-            throw Error(description: "pull and build timeoutSeconds must be between 1 and 86400")
-        }
-
-        let adopted = try (root["adopted"].map { try array($0, at: "adopted") } ?? []).enumerated().map {
-            index, value in try string(value, at: "adopted[\(index)]")
+            throw Error(description: "pull and build timeouts must be between 1 and 86400 seconds")
         }
 
         return Configuration(
-            mountRoots: mountRoots, hostPorts: portRange, registries: registries, resources: resources,
-            logs: logs, exec: exec, pullTimeoutSeconds: pullTimeout, buildTimeoutSeconds: buildTimeout,
-            adoptedContainers: adopted)
+            mountRoots: mountRoots, hostPorts: portRange, registries: registries, resources: resources, logs: logs,
+            exec: exec, pullTimeoutSeconds: pullTimeout, buildTimeoutSeconds: buildTimeout,
+            adoptedContainers: list(values, "adopted-containers"))
     }
 
-    private static func requireKeys(_ object: [String: Any], allowed: Set<String>, required: Set<String>, at place: String)
-        throws
-    {
-        if let unknown = object.keys.sorted().first(where: { !allowed.contains($0) }) {
-            throw Error(description: "unknown key \"\(unknown)\" in \(place)")
+    /// Claude Code joins the entries of a list option with commas, so a comma can never be
+    /// part of an entry. Blank entries, which an empty list produces, are dropped.
+    static func list(_ values: [String: String], _ name: String) -> [String] {
+        (values[name] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    static func integer(_ values: [String: String], _ name: String) throws -> Int {
+        guard let text = values[name], let number = Int(text.trimmingCharacters(in: .whitespaces)) else {
+            throw Error(description: "--\(name) must be a whole number")
         }
-        if let missing = required.sorted().first(where: { object[$0] == nil }) {
-            throw Error(description: "missing key \"\(missing)\" in \(place)")
+        return number
+    }
+
+    static func boolean(_ values: [String: String], _ name: String) throws -> Bool {
+        switch values[name] {
+        case "true": return true
+        case "false": return false
+        default: throw Error(description: "--\(name) must be true or false")
         }
-    }
-
-    private static func dictionary(_ value: Any?, at place: String) throws -> [String: Any] {
-        guard let object = value as? [String: Any] else { throw Error(description: "\(place) must be an object") }
-        return object
-    }
-
-    private static func array(_ value: Any?, at place: String) throws -> [Any] {
-        guard let items = value as? [Any] else { throw Error(description: "\(place) must be an array") }
-        return items
-    }
-
-    private static func string(_ value: Any?, at place: String) throws -> String {
-        guard let text = value as? String else { throw Error(description: "\(place) must be a string") }
-        return text
-    }
-
-    // JSONSerialization returns NSNumber for both booleans and numbers; CFBoolean tells them apart.
-    private static func integer(_ value: Any?, at place: String) throws -> Int {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-            number.doubleValue == number.doubleValue.rounded(), let exact = Int(exactly: number.doubleValue)
-        else { throw Error(description: "\(place) must be an integer") }
-        return exact
-    }
-
-    private static func boolean(_ value: Any, at place: String) throws -> Bool {
-        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
-            throw Error(description: "\(place) must be true or false")
-        }
-        return number.boolValue
     }
 }
