@@ -1,5 +1,4 @@
 import Foundation
-import MCP
 
 @testable import ContainerMCPCore
 
@@ -76,7 +75,7 @@ struct Fixture {
 
     var policy: Policy { Policy(configuration: configuration, paths: paths) }
 
-    func call(_ tool: ToolName, _ arguments: [String: Value] = [:]) async -> CallTool.Result {
+    func call(_ tool: ToolName, _ arguments: [String: Value] = [:]) async -> ToolOutput {
         await dispatcher.call(name: tool.rawValue, arguments: arguments)
     }
 
@@ -93,14 +92,7 @@ struct Fixture {
     }
 }
 
-extension CallTool.Result {
-    var text: String {
-        content.compactMap { item -> String? in
-            if case .text(let text, _, _) = item { return text }
-            return nil
-        }.joined(separator: "\n")
-    }
-
+extension ToolOutput {
     var refused: Bool { isError == true && text.hasPrefix("Refused by rule") }
 
     func refused(by rule: Rule) -> Bool { isError == true && text.hasPrefix("Refused by rule \(rule.rawValue):") }

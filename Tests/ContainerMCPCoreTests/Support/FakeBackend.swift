@@ -30,6 +30,10 @@ actor FakeBackend: ContainerBackend {
     var running = true
     var serviceVersion = "1.7.1"
     var pullDelaySeconds: Double = 0
+    /// Values a pull reports, in order, as the native backend's progress bridge would.
+    var pullProgress: [Double] = []
+    /// The sink of the last pull, kept so a test can report through it after the call ended.
+    var lastPullProgress: ProgressSink?
     var execResult = ExecResult(exitCode: 0, timedOut: false, standardOutput: "ok\n", standardError: "", outputTruncated: false)
 
     let infrastructure = InfrastructureImages(
@@ -50,6 +54,7 @@ actor FakeBackend: ContainerBackend {
     func set(running: Bool) { self.running = running }
     func set(serviceVersion: String) { self.serviceVersion = serviceVersion }
     func set(pullDelaySeconds: Double) { self.pullDelaySeconds = pullDelaySeconds }
+    func set(pullProgress: [Double]) { self.pullProgress = pullProgress }
     func add(image: String) { images.append(ImageSummary(reference: image, digest: "sha256:\(image.count)")) }
 
     func systemStatus() async throws -> SystemStatus {
@@ -126,6 +131,8 @@ actor FakeBackend: ContainerBackend {
 
     func pullImage(reference: String, platform: String?, progress: ProgressSink) async throws -> ImageSummary {
         calls.append(.pull(reference))
+        lastPullProgress = progress
+        for completed in pullProgress { await progress.report(completed: completed, message: "pulling") }
         if pullDelaySeconds > 0 { try await Task.sleep(for: .seconds(pullDelaySeconds)) }
         let normalized = try await normalizeImageReference(reference)
         let image = ImageSummary(reference: normalized, digest: "sha256:pulled")

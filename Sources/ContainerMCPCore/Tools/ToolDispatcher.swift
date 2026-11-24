@@ -1,5 +1,4 @@
 import Foundation
-import MCP
 
 /// Runs one tool call: strict argument decoding, the policy decision, the backend call and
 /// the audit entry. There is no path from a tool to the backend that skips `Policy`.
@@ -29,7 +28,7 @@ public actor ToolDispatcher {
         let message: String
     }
 
-    public func call(name: String, arguments: [String: Value]?, progress: ProgressSink = .none) async -> CallTool.Result {
+    public func call(name: String, arguments: [String: Value]?, progress: ProgressSink = .none) async -> ToolOutput {
         let auditArguments = AuditValue(.object(arguments ?? [:]))
         guard let tool = ToolName(rawValue: name) else {
             await audit.record(tool: name, arguments: auditArguments, decision: .refused, rule: Rule.inputInvalid.rawValue, result: "unknown tool")
@@ -38,7 +37,7 @@ public actor ToolDispatcher {
         do {
             let output = try await run(tool, arguments: arguments, progress: progress)
             await audit.record(tool: name, arguments: auditArguments, decision: .allowed, rule: "policy", result: output.summary)
-            return CallTool.Result(content: [.text(text: output.text, annotations: nil, _meta: nil)], isError: false)
+            return ToolOutput(text: output.text, isError: false)
         } catch let refusal as Refusal {
             await audit.record(tool: name, arguments: auditArguments, decision: .refused, rule: refusal.rule.rawValue, result: refusal.reason)
             return Self.errorResult(refusal.description)
@@ -52,8 +51,8 @@ public actor ToolDispatcher {
         }
     }
 
-    static func errorResult(_ text: String) -> CallTool.Result {
-        CallTool.Result(content: [.text(text: text, annotations: nil, _meta: nil)], isError: true)
+    static func errorResult(_ text: String) -> ToolOutput {
+        ToolOutput(text: text, isError: true)
     }
 
     struct Output {

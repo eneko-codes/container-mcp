@@ -1,5 +1,3 @@
-import MCP
-
 /// The tools the server offers. Anything not listed here (registry login, logout and push,
 /// stopping the system service, every "all" and prune form, kill, machines, Kubernetes,
 /// DNS and system property changes) has no tool at all.

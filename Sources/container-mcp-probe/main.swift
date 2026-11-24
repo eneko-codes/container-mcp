@@ -1,7 +1,6 @@
+import ContainerMCPCore
 import Darwin
 import Foundation
-import MCP
-import System
 
 // A development-only MCP client: starts the built server over stdio, calls every tool in a
 // scenario that creates only `container-mcp-probe-…` resources and deletes them, and prints
@@ -35,52 +34,83 @@ FileManager.default.createFile(atPath: scratch + "/server-stderr.log", contents:
 server.standardError = FileHandle(forWritingAtPath: scratch + "/server-stderr.log")
 try server.run()
 
-let transport = StdioTransport(
-    input: FileDescriptor(rawValue: fromServer.fileHandleForReading.fileDescriptor),
-    output: FileDescriptor(rawValue: toServer.fileHandleForWriting.fileDescriptor))
-let client = Client(name: "container-mcp-probe", version: "0.1.0")
+// JSON-RPC over the server's stdio, one JSON message per line. The probe sends one request
+// at a time and waits for its reply, so every other line read meanwhile is a notification.
+let requests = toServer.fileHandleForWriting
+var serverLines = fromServer.fileHandleForReading.bytes.lines.makeAsyncIterator()
+var lastRequestID = 0
+var failures: [String] = []
 
-actor ProgressLog {
-    var count = 0
-    var lastMessage: String?
-    func record(_ message: String?) {
-        count += 1
-        if let message { lastMessage = message }
+struct ProbeError: Error, CustomStringConvertible {
+    let description: String
+}
+
+@MainActor func json(_ value: Value) -> String {
+    String(decoding: (try? JSONEncoder().encode(value)) ?? Data(), as: UTF8.self)
+}
+
+@MainActor func send(_ message: [String: Value]) throws {
+    let line = try JSONEncoder().encode(Value.object(message))
+    try requests.write(contentsOf: line + Data("\n".utf8))
+}
+
+@MainActor func readMessage() async throws -> [String: Value]? {
+    // An iterator stored in a global cannot be advanced in place from an async function.
+    var iterator = serverLines
+    defer { serverLines = iterator }
+    guard let line = try await iterator.next() else { return nil }
+    guard let message = try? JSONDecoder().decode(Value.self, from: Data(line.utf8)).objectValue else {
+        throw ProbeError(description: "the server wrote a line that is not a JSON object: \(line.prefix(200))")
     }
-    func take() -> (Int, String?) {
-        defer {
-            count = 0
-            lastMessage = nil
+    return message
+}
+
+/// Sends a request and returns its result, handing each progress notification read before
+/// the reply to `progress`.
+@MainActor func request(
+    _ method: String, _ parameters: [String: Value] = [:], progress: ([String: Value]) -> Void = { _ in }
+) async throws -> [String: Value] {
+    lastRequestID += 1
+    let id = Value.int(lastRequestID)
+    try send(["jsonrpc": "2.0", "id": id, "method": .string(method), "params": .object(parameters)])
+    while let message = try await readMessage() {
+        if message["id"] == id {
+            if let error = message["error"]?.objectValue {
+                throw ProbeError(description: "JSON-RPC error \(error["code"]?.intValue ?? 0): \(error["message"]?.stringValue ?? "")")
+            }
+            guard let result = message["result"]?.objectValue else { throw ProbeError(description: "a reply with no result") }
+            return result
         }
-        return (count, lastMessage)
+        if message["method"] == "notifications/progress", let parameters = message["params"]?.objectValue {
+            progress(parameters)
+        } else {
+            failures.append("\(method): unexpected message \(json(.object(message)))")
+        }
     }
-}
-let progressLog = ProgressLog()
-await client.onNotification(ProgressNotification.self) { message in
-    await progressLog.record(message.params.message)
+    throw ProbeError(description: "the server closed its output before answering \(method)")
 }
 
-let initialize = try await client.connect(transport: transport)
+let initialize = try await request(
+    "initialize",
+    [
+        "protocolVersion": "2025-11-25", "capabilities": [:],
+        "clientInfo": ["name": "container-mcp-probe", "version": "0.1.0"],
+    ])
+try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+let serverInfo = initialize["serverInfo"]?.objectValue ?? [:]
 print("## initialize")
-print("server: \(initialize.serverInfo.name) \(initialize.serverInfo.version), protocol \(initialize.protocolVersion)")
+print("server: \(serverInfo["name"]?.stringValue ?? "?") \(serverInfo["version"]?.stringValue ?? "?"), protocol \(initialize["protocolVersion"]?.stringValue ?? "?")")
 
-let (tools, _) = try await client.listTools()
+let tools = try await request("tools/list")["tools"]?.arrayValue?.compactMap(\.objectValue) ?? []
 print("\n## tools/list: \(tools.count) tools")
 for tool in tools {
-    let hints = tool.annotations
-    print("- \(tool.name): readOnly=\(hints.readOnlyHint.map(String.init) ?? "-") destructive=\(hints.destructiveHint.map(String.init) ?? "-") idempotent=\(hints.idempotentHint.map(String.init) ?? "-")")
+    let hints = tool["annotations"]?.objectValue ?? [:]
+    func hint(_ name: String) -> String { hints[name]?.boolValue.map(String.init) ?? "-" }
+    print("- \(tool["name"]?.stringValue ?? "?"): readOnly=\(hint("readOnlyHint")) destructive=\(hint("destructiveHint")) idempotent=\(hint("idempotentHint"))")
 }
 
 var calledTools: Set<String> = []
-var failures: [String] = []
 var progressCounter = 0
-
-@MainActor func text(_ content: [Tool.Content]) -> String {
-    content.compactMap { item -> String? in
-        if case .text(let text, _, _) = item { return text }
-        return nil
-    }.joined()
-}
 
 @MainActor func object(_ text: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
@@ -91,24 +121,40 @@ var progressCounter = 0
 func call(_ tool: String, _ arguments: [String: Value] = [:], expect: String = "ok", note: String = "") async -> String {
     calledTools.insert(tool)
     progressCounter += 1
-    let meta = Metadata(progressToken: .string("probe-\(progressCounter)"))
-    let rendered = String(decoding: (try? JSONEncoder().encode(Value.object(arguments))) ?? Data(), as: UTF8.self)
-    print("\n→ \(tool) \(rendered)\(note.isEmpty ? "" : "   # \(note)")")
+    let token = Value.string("probe-\(progressCounter)")
+    print("\n→ \(tool) \(json(.object(arguments)))\(note.isEmpty ? "" : "   # \(note)")")
+    var notifications = 0
+    var lastMessage: String?
+    var lastProgress: Double?
     do {
-        let result = try await client.callTool(name: tool, arguments: arguments, meta: meta)
-        let body = text(result.content)
-        let (notifications, lastMessage) = await progressLog.take()
+        let result = try await request(
+            "tools/call", ["name": .string(tool), "arguments": .object(arguments), "_meta": ["progressToken": token]]
+        ) { parameters in
+            notifications += 1
+            // Notifications must stop when a call is answered, so one carrying an earlier
+            // call's token here was written after that call's reply.
+            guard parameters["progressToken"] == token else {
+                failures.append("\(tool): a progress notification of an earlier call arrived after its reply")
+                return
+            }
+            let progress = parameters["progress"]?.doubleValue ?? -.infinity
+            if let lastProgress, progress <= lastProgress { failures.append("\(tool): progress did not increase") }
+            lastProgress = progress
+            if let message = parameters["message"]?.stringValue { lastMessage = message }
+        }
+        let body = (result["content"]?.arrayValue ?? []).compactMap { $0.objectValue?["text"]?.stringValue }.joined()
+        let isError = result["isError"]?.boolValue == true
         let shown = body.count > 900 ? String(body.prefix(900)) + "\n… (\(body.count) characters)" : body
-        print("← \(result.isError == true ? "ERROR" : "ok")\(notifications > 0 ? " [\(notifications) progress notifications, last: \(lastMessage ?? "-")]" : "")")
+        print("← \(isError ? "ERROR" : "ok")\(notifications > 0 ? " [\(notifications) progress notifications, last: \(lastMessage ?? "-")]" : "")")
         print(shown)
-        let outcome = result.isError == true ? (body.hasPrefix("Refused by rule") ? "refused" : "error") : "ok"
+        let outcome = isError ? (body.hasPrefix("Refused by rule") ? "refused" : "error") : "ok"
         if outcome != expect {
             failures.append("\(tool): expected \(expect), got \(outcome)")
         }
         return body
     } catch {
-        print("← transport error: \(error)")
-        failures.append("\(tool): transport error \(error)")
+        print("← protocol error: \(error)")
+        failures.append("\(tool): protocol error \(error)")
         return ""
     }
 }
@@ -127,7 +173,6 @@ let unprotected = (object(initialList)["containers"] as? [[String: Any]] ?? []).
 }.compactMap { $0["id"] as? String }
 guard unprotected.isEmpty else {
     print("STOPPED: these containers are not protected, so the probe could touch them: \(unprotected.joined(separator: ", ")). Pass them in --protected-containers.")
-    await client.disconnect()
     server.terminate()
     exit(3)
 }
@@ -211,7 +256,7 @@ let finalList = await call("containers_list", ["all": true])
 if !builderRunning(initialList) && builderRunning(finalList) {
     print("buildkit was stopped before this run and is running now: stop it with `container stop buildkit`")
 }
-let allTools = Set(tools.map(\.name))
+let allTools = Set(tools.compactMap { $0["name"]?.stringValue })
 let missing = allTools.subtracting(calledTools).sorted()
 print("tools called: \(calledTools.count) of \(allTools.count)\(missing.isEmpty ? "" : ", not called: \(missing.joined(separator: ", "))")")
 if !missing.isEmpty { failures.append("not every tool was called") }
@@ -219,9 +264,13 @@ if !status.contains("\"versionMatches\" : true") { failures.append("service vers
 if inspected.contains("probe-token-value") { failures.append("inspect echoed an env value") }
 if environment.contains(probeSecret) { failures.append("the server's own environment reached the container") }
 print("server environment variable inside the container: \(environment.contains(probeSecret) ? "LEAKED" : "absent")")
-print(failures.isEmpty ? "RESULT: all expectations met" : "RESULT: \(failures.count) failures\n- " + failures.joined(separator: "\n- "))
 
-await client.disconnect()
-server.terminate()
+// Closing the input ends the session: the server answers what it was asked, then exits.
+// Anything it writes after the last reply, such as a late progress notification, is a fault.
+try? requests.close()
+while let message = try? await readMessage() {
+    failures.append("the server wrote after its last reply: \(json(.object(message)))")
+}
 server.waitUntilExit()
+print(failures.isEmpty ? "RESULT: all expectations met" : "RESULT: \(failures.count) failures\n- " + failures.joined(separator: "\n- "))
 exit(failures.isEmpty ? 0 : 1)
