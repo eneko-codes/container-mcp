@@ -73,23 +73,23 @@ var calledTools: Set<String> = []
 var failures: [String] = []
 var progressCounter = 0
 
-func text(_ content: [Tool.Content]) -> String {
+@MainActor func text(_ content: [Tool.Content]) -> String {
     content.compactMap { item -> String? in
         if case .text(let text, _, _) = item { return text }
         return nil
     }.joined()
 }
 
-func object(_ text: String) -> [String: Any] {
+@MainActor func object(_ text: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
 }
 
 /// Calls a tool, prints request and (shortened) response, and checks the expectation.
-@discardableResult
+@MainActor @discardableResult
 func call(_ tool: String, _ arguments: [String: Value] = [:], expect: String = "ok", note: String = "") async -> String {
     calledTools.insert(tool)
     progressCounter += 1
-    let meta = Metadata(fields: ["progressToken": .string("probe-\(progressCounter)")])
+    let meta = Metadata(progressToken: .string("probe-\(progressCounter)"))
     let rendered = String(decoding: (try? JSONEncoder().encode(Value.object(arguments))) ?? Data(), as: UTF8.self)
     print("\n→ \(tool) \(rendered)\(note.isEmpty ? "" : "   # \(note)")")
     do {
