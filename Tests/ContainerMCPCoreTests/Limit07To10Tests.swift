@@ -133,7 +133,11 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
     @Test func buildContextOutsideTheRootsIsRefused() async throws {
         let fixture = try await Fixture()
         defer { fixture.remove() }
-        #expect(await fixture.call(.imageBuild, ["context_path": .string(fixture.home + "/Outside"), "tag": "demo:1"]).refused(by: .buildContext))
+        // The folder has a Dockerfile, so only the root check can refuse it.
+        try Data("FROM alpine\n".utf8).write(to: URL(fileURLWithPath: fixture.home + "/Outside/Dockerfile"))
+        let outside = await fixture.call(.imageBuild, ["context_path": .string(fixture.home + "/Outside"), "tag": "demo:1"])
+        #expect(outside.refused(by: .buildContext))
+        #expect(outside.text.contains("outside every mount root"), "\(outside.text)")
         #expect(await fixture.call(.imageBuild, ["context_path": .string(fixture.readOnlyRoot + "/escape"), "tag": "demo:1"]).refused(by: .buildContext))
         #expect(await fixture.backend.calls.isEmpty)
     }
