@@ -31,63 +31,51 @@ swift build -c release
 ```
 
 The binary is `.build/release/container-mcp`. It speaks MCP over stdio, and its
-diagnostics go to stderr. To use it on its own in Claude Code:
-
-```bash
-claude mcp add container -- "$PWD/.build/release/container-mcp"
-```
-
-The plugin in `plugin/` packages the server with its skills; see its README.
+diagnostics go to stderr. The plugin in `plugin/` packages it with its skills and its
+settings; `plugin/README.md` says how to install it.
 
 ## Configuration
 
-The server reads one file when it starts:
+The policy is set in the plugin's settings: in Claude Code, `/plugin configure
+container-mcp@container-mcp`, or from a shell:
 
-```
-~/Library/Application Support/container-mcp/config.json
-```
-
-The file is yours. No tool can write it or change the policy while the server runs. It must
-be a regular file (not a symlink), owned by you and not writable by group or others
-(`chmod 600`). If it is missing or invalid, only the read tools work and `system_status`
-says why. Unknown keys make the file invalid, so a typo cannot silently drop a limit.
-`config.example.json` is a starting point.
-
-```json
-{
-  "version": 1,
-  "mountRoots": [
-    { "path": "/Users/user/Code", "writable": false },
-    { "path": "/Users/user/Scratch", "writable": true }
-  ],
-  "hostPorts": { "min": 8000, "max": 8999 },
-  "registries": ["docker.io", "ghcr.io"],
-  "resources": { "defaultCpus": 2, "maxCpus": 4, "defaultMemoryMiB": 1024, "maxMemoryMiB": 4096 },
-  "logs": { "maxLines": 500, "maxBytes": 65536 },
-  "exec": { "timeoutSeconds": 60, "maxOutputBytes": 65536 },
-  "pull": { "timeoutSeconds": 600 },
-  "build": { "timeoutSeconds": 1800 },
-  "adopted": ["example-db"]
-}
+```bash
+claude plugin configure container-mcp@container-mcp --values-stdin < values.json
 ```
 
-| Key | Meaning | Accepted values |
+where `values.json` maps option keys to strings, for example
+`{"write_tools_enabled": "true", "read_only_folders": "/Users/user/Code"}`. Claude Code
+saves the values under `pluginConfigs` in your user settings (project settings cannot set
+them) and passes them to the server as launch arguments when it starts it. The server
+reads them once; no tool can change them. Restart Claude Code after changing them.
+
+Write tools stay off until you turn on **Allow write tools**. Until then, and whenever the
+values are invalid or the server is started without them, only the read tools work and
+`system_status` says why. Unknown or missing options make the settings invalid, so a typo
+cannot silently drop a limit.
+
+| Option | Meaning | Default |
 |---|---|---|
-| `version` | File format version | `1` |
-| `mountRoots[].path` | Folder under which host paths may be mounted and builds may read their context. Resolved (symlinks, `..`) when the server starts. | Absolute path to an existing folder |
-| `mountRoots[].writable` | Whether a mount under this root may be read-write when the call asks for it | `true`, `false` (default) |
-| `hostPorts.min`, `hostPorts.max` | Host ports a container may publish, always on 127.0.0.1 | 1024 ≤ min ≤ max ≤ 65535 |
-| `registries` | Registry domains images may be pulled from. `docker.io`, `registry-1.docker.io` and `index.docker.io` count as one. | Bare domains |
-| `resources.defaultCpus`, `resources.maxCpus` | CPUs a container gets when the call names none, and the most it may ask for | 1 ≤ default ≤ max |
-| `resources.defaultMemoryMiB`, `resources.maxMemoryMiB` | Memory, the same way | 200 ≤ default ≤ max |
-| `logs.maxLines`, `logs.maxBytes` | The most a log call returns | 1–100000 lines, 1–10485760 bytes |
-| `exec.timeoutSeconds` | Default and maximum time an exec may run before it is killed | 1–3600 |
-| `exec.maxOutputBytes` | The most stdout and stderr an exec returns, together | 1–10485760 |
-| `pull.timeoutSeconds` | Time after which a pull (and a run that has to pull) is abandoned | 1–86400 |
-| `build.timeoutSeconds` | Time after which a build is abandoned | 1–86400 |
-| `adopted` | Containers the server did not create that it may start and stop, never exec into or delete | Container names |
+| `write_tools_enabled` | Allow write tools | off |
+| `read_only_folders` | Folders containers may mount, read-only, and builds may read. Resolved (symlinks, `..`) when the server starts; each must exist. | none |
+| `writable_folders` | Folders under which a mount may be read-write when the call asks | none |
+| `host_port_min`, `host_port_max` | Host ports a container may publish, always on 127.0.0.1 (1024–65535) | 8000–8999 |
+| `registries` | Registry domains images may be pulled from. `docker.io`, `registry-1.docker.io` and `index.docker.io` count as one. | docker.io, ghcr.io |
+| `default_cpus`, `max_cpus` | CPUs a container gets when the call names none, and the most it may ask for | 2, 4 |
+| `default_memory_mib`, `max_memory_mib` | Memory, the same way (at least 200 MiB) | 1024, 4096 |
+| `log_max_lines`, `log_max_bytes` | The most a log call returns | 500, 65536 |
+| `exec_timeout_seconds`, `exec_max_output_bytes` | Default and maximum time an exec may run before it is killed, and the most stdout plus stderr it returns | 60, 65536 |
+| `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned | 600, 1800 |
+| `adopted_containers` | Containers the server did not create that it may start and stop, never exec into or delete | none |
 
-Other files the server writes, all private to you:
+Claude Code passes list options as one comma-separated argument, so a folder whose path
+contains a comma cannot be listed.
+
+Started outside the plugin, the server takes the same values as `--option value` pairs, one
+per option (`--write-tools-enabled true --read-only-folders /Users/user/Code …`, every option
+listed in `ConfigurationArguments.options`). With no arguments it runs read-only.
+
+Files the server writes, all private to you:
 
 | File | Contents |
 |---|---|
@@ -135,13 +123,15 @@ Each limit is enforced in `Sources/ContainerMCPCore/Policy` and has unit tests i
 `Tests/ContainerMCPCoreTests` named after it. `Scripts/check-limit-tests.swift` switches each
 limit off in turn and checks that a test then fails.
 
-1. **The configuration is yours.** One file at a fixed path, read at startup, never written
-   by a tool. Without it only read tools work.
+1. **The policy is yours.** It comes from the plugin's settings, which only your user (or
+   managed) settings can hold, is read once at startup and is changed by no tool. Without it,
+   or until you allow write tools, only read tools work.
 2. **Mount allowlist.** A host path is resolved with `realpath(3)` (symlinks, `..`, letter
    case) before it is checked, must lie inside a mount root, and is mounted read-only unless
    that root is writable and the call asks. Always refused, also when inside a root: any path
-   that is, is inside, or contains the server's configuration or audit folder, `~/.ssh`,
-   `~/Library`, the keychain folders, the container tool's data (`~/.config/container`, its
+   that is, is inside, or contains the server's state or audit folder, Claude Code's
+   settings (`~/.claude`, and the real folder of its settings file when that is a link),
+   `~/.ssh`, `~/Library`, the keychain folders, the container tool's data (`~/.config/container`, its
    application root, `/usr/local/libexec/container`); and the home folder itself and `/`.
    Volumes the server did not create cannot be mounted.
 3. **Loopback only.** Every published port binds 127.0.0.1; the input has no field for an
@@ -181,8 +171,9 @@ the service do through these tools. It does **not** protect against:
 
 - **Other software running as you.** The container service accepts any process with your
   user ID; it checks nothing else. Anything that can run `container` can do everything the
-  server refuses. The same applies to the configuration file and the audit log, which any
-  process running as you can rewrite.
+  server refuses. The same applies to Claude Code's settings, which hold the policy, and to
+  the audit log: any process running as you can rewrite them, including Claude Code itself
+  when it edits files on your behalf.
 - **What runs inside a container.** Containers have outbound network access. Code in a
   container can read everything in its read-only mounts and send it anywhere, change
   everything in its writable mounts, and reach other containers on its network, including
@@ -213,21 +204,21 @@ the service do through these tools. It does **not** protect against:
 swift test                                       # unit tests, fake backend
 CONTAINER_MCP_INTEGRATION=1 swift test           # plus the live test against the real service
 swift Scripts/check-limit-tests.swift            # every limit has a test that catches its removal
-.build/release/container-mcp-probe .build/release/container-mcp <scratch folder>
+.build/release/container-mcp-probe .build/release/container-mcp <scratch folder> <policy options…>
 ```
 
 The integration test and the probe create only resources named `container-mcp-it-…` or
 `container-mcp-probe-…`, labelled as the server's, and delete them at the end. The
 integration test needs `docker.io/library/alpine:3.21` to be absent beforehand, so that
 deleting it afterwards is safe, and it starts the shared `buildkit` container, leaving it
-stopped if it was stopped. The probe needs a configuration whose mount roots are the scratch
-folder's `readonly` and `writable` subfolders.
+stopped if it was stopped. The probe passes the policy options to the server itself; its read-only
+and writable folders must be the scratch folder's `readonly` and `writable` subfolders.
 
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
-| `Sources/ContainerMCPCore` | Policy, configuration, audit log, tool schemas and dispatcher. Depends only on the MCP SDK. |
+| `Sources/ContainerMCPCore` | Policy, the settings parser, audit log, tool schemas and dispatcher. Depends only on the MCP SDK. |
 | `Sources/ContainerMCPNative` | The backend that talks to the container service through apple/container's client library |
 | `Sources/container-mcp` | The stdio server executable |
 | `Sources/container-mcp-probe` | A development MCP client that drives every tool |

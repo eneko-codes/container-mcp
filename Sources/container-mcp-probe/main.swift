@@ -5,13 +5,14 @@ import System
 
 // A development-only MCP client: starts the built server over stdio, calls every tool in a
 // scenario that creates only `container-mcp-probe-…` resources and deletes them, and prints
-// the transcript. Usage: container-mcp-probe <server binary> <scratch folder>
-// The scratch folder must hold readonly/src, writable/out and readonly/build/Dockerfile and
-// must be listed as mount roots in the server's configuration.
+// the transcript. Usage: container-mcp-probe <server binary> <scratch folder> <policy options…>
+// The policy options are passed to the server as the plugin would pass them. The scratch
+// folder must hold readonly/src, writable/out and readonly/build/Dockerfile, and those two
+// folders must be the read-only and writable folders in the options.
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3 else {
-    FileHandle.standardError.write(Data("usage: container-mcp-probe <server binary> <scratch folder>\n".utf8))
+guard arguments.count > 3 else {
+    FileHandle.standardError.write(Data("usage: container-mcp-probe <server binary> <scratch folder> <policy options…>\n".utf8))
     exit(2)
 }
 let serverPath = arguments[1]
@@ -25,6 +26,7 @@ let toServer = Pipe()
 let fromServer = Pipe()
 let server = Process()
 server.executableURL = URL(fileURLWithPath: serverPath)
+server.arguments = Array(arguments.dropFirst(3))
 // A variable the server must not pass on to any container.
 server.environment = ProcessInfo.processInfo.environment.merging(["CONTAINER_MCP_PROBE_SECRET": probeSecret]) { _, new in new }
 server.standardInput = toServer

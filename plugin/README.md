@@ -11,8 +11,9 @@ skills.
 | `skills/container-management` | Running and managing containers through the server |
 | `skills/container-image-build` | Building an image from a project folder |
 
-The plugin holds no configuration and no path of the user's. The server reads its policy from
-`~/Library/Application Support/container-mcp/config.json`; see the top-level README.
+The plugin holds no value and no path of the user's: its settings (`userConfig` in the
+manifest) are filled in by the user, and `.mcp.json` passes them to the server as launch
+arguments. The options are described in the top-level README.
 
 ## Install in Claude Code
 
@@ -23,6 +24,9 @@ make plugin
 claude plugin marketplace add "$PWD"
 claude plugin install container-mcp@container-mcp
 ```
+
+Then set the policy with `/plugin configure container-mcp@container-mcp` in a session and
+restart Claude Code. Write tools stay off until **Allow write tools** is on.
 
 `make plugin` builds the server and copies it into `plugin/server/`. The marketplace is
 added from a local path, so Claude Code loads the plugin in place from this folder: after
