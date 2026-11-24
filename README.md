@@ -26,28 +26,30 @@ mismatch.
 
 ## Build and install
 
+The server ships as a Claude desktop extension, and its skills ship separately as a
+skills-only plugin. The desktop app runs the extension on this Mac and relays tool calls to
+it from chat, Cowork and the Code tab. Chats run inside a Linux VM, so a server bundled in a
+plugin would never reach the container service on the Mac.
+
 ```bash
-swift build -c release
+make mcpb          # dist/container-mcp.mcpb, the "Apple container server" extension
+make plugin-zip    # dist/container-mcp-skills.zip, the "Apple container skills" plugin
 ```
 
-The binary is `.build/release/container-mcp`. It speaks MCP over stdio, and its
-diagnostics go to stderr. The plugin in `plugin/` packages it with its skills and its
-settings; `plugin/README.md` says how to install it.
+1. Open `dist/container-mcp.mcpb` with Claude (`open -a Claude dist/container-mcp.mcpb`),
+   choose your settings in the install dialog and click Install.
+2. In Customize → Plugins, upload `dist/container-mcp-skills.zip`, or install `plugin/` in
+   Claude Code with `claude plugin marketplace add .` and
+   `claude plugin install container-mcp@container-mcp`.
+
+The binary is also at `.build/release/container-mcp` after `swift build -c release`. It
+speaks MCP over stdio, and its diagnostics go to stderr.
 
 ## Configuration
 
-The policy is set in the plugin's settings: in Claude Code, `/plugin configure
-container-mcp@container-mcp`, or from a shell:
-
-```bash
-claude plugin configure container-mcp@container-mcp --values-stdin < values.json
-```
-
-where `values.json` maps option keys to strings, for example
-`{"write_tools_enabled": "true", "read_only_folders": "/Users/user/Code"}`. Claude Code
-saves the values under `pluginConfigs` in your user settings (project settings cannot set
-them) and passes them to the server as launch arguments when it starts it. The server
-reads them once; no tool can change them. Restart Claude Code after changing them.
+The policy is set in the extension's settings: in the install dialog, and afterwards under
+Settings → Extensions → Apple container server. The desktop app passes them to the server as
+launch arguments when it starts it. The server reads them once; no tool can change them.
 
 Write tools stay off until you turn on **Allow write tools**. Until then, and whenever the
 values are invalid or the server is started without them, only the read tools work and
@@ -68,12 +70,14 @@ cannot silently drop a limit.
 | `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned | 600, 1800 |
 | `protected_containers` | Containers no tool may touch: no start, stop, exec, delete, inspect, logs or stats. Listing shows only their name and status. Every other container may be managed. | none |
 
-Claude Code passes list options as one comma-separated argument, so a folder whose path
-contains a comma cannot be listed.
+Folder lists arrive as one argument per folder; registries and protected containers are
+comma-separated text, so no entry can contain a comma. An option left unset arrives as its
+literal `${user_config.…}` placeholder and counts as empty.
 
-Started outside the plugin, the server takes the same values as `--option value` pairs, one
-per option (`--write-tools-enabled true --read-only-folders /Users/user/Code …`, every option
-listed in `ConfigurationArguments.options`). With no arguments it runs read-only.
+Started by hand, the server takes the same values as `--option value…` groups
+(`--write-tools-enabled true --read-only-folders /Users/user/Code …`, every option listed in
+`ConfigurationArguments.options`; a list may also be one comma-separated argument). With no
+arguments it runs read-only.
 
 Files the server writes, all private to you:
 
@@ -123,9 +127,9 @@ Each limit is enforced in `Sources/ContainerMCPCore/Policy` and has unit tests i
 `Tests/ContainerMCPCoreTests` named after it. `Scripts/check-limit-tests.swift` switches each
 limit off in turn and checks that a test then fails.
 
-1. **The policy is yours.** It comes from the plugin's settings, which only your user (or
-   managed) settings can hold, is read once at startup and is changed by no tool. Without it,
-   or until you allow write tools, only read tools work.
+1. **The policy is yours.** It comes from the extension's settings, is read once at startup
+   and is changed by no tool. Without it, or until you allow write tools, only read tools
+   work.
 2. **Mount allowlist.** A host path is resolved with `realpath(3)` (symlinks, `..`, letter
    case) before it is checked, must lie inside a mount root, and is mounted read-only unless
    that root is writable and the call asks. Always refused, also when inside a root: any path
@@ -174,9 +178,8 @@ the service do through these tools. It does **not** protect against:
 
 - **Other software running as you.** The container service accepts any process with your
   user ID; it checks nothing else. Anything that can run `container` can do everything the
-  server refuses. The same applies to Claude Code's settings, which hold the policy, and to
-  the audit log: any process running as you can rewrite them, including Claude Code itself
-  when it edits files on your behalf.
+  server refuses. The same applies to the extension's settings, which hold the policy, and
+  to the audit log: any process running as you can rewrite them.
 - **What runs inside a container.** Containers have outbound network access. Code in a
   container can read everything in its read-only mounts and send it anywhere, change
   everything in its writable mounts, and reach other containers on its network, including
@@ -231,7 +234,8 @@ and writable folders must be the scratch folder's `readonly` and `writable` subf
 | `Tests/ContainerMCPCoreTests` | Policy tests against a fake backend, one file per group of limits |
 | `Tests/ContainerMCPIntegrationTests` | The opt-in live test |
 | `Scripts` | The limit kill-check |
-| `plugin` | The Claude plugin: manifest, MCP server entry and skills |
+| `extension` | The desktop extension's manifest; `make mcpb` adds the server and packs it |
+| `plugin` | The skills plugin: manifest and the two skills, no server |
 
 ## License
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The user's policy, passed by the plugin as launch arguments from the plugin's settings and
+/// The user's policy, passed by the desktop extension as launch arguments from the extension's settings and
 /// read once at startup. No tool can change it.
 public struct Configuration: Sendable, Equatable {
     public struct MountRoot: Sendable, Equatable {
@@ -94,15 +94,15 @@ public struct Configuration: Sendable, Equatable {
 
 // MARK: - Launch arguments
 
-/// Reads the policy from `--option value` pairs, the form the plugin's MCP entry passes the
-/// saved plugin settings in. Every option must be present exactly once and unknown options
+/// Reads the policy from `--option value` pairs, the form the desktop extension (or Claude Code) passes the
+/// saved settings in. Every option must be present exactly once and unknown options
 /// are refused, so a typo can never silently drop a limit.
 public enum ConfigurationArguments {
     public struct Error: Swift.Error, CustomStringConvertible {
         public let description: String
     }
 
-    /// Every option the server accepts, in the order the plugin passes them.
+    /// Every option the server accepts, in the order the extension passes them.
     public static let options = [
         "write-tools-enabled", "read-only-folders", "writable-folders", "host-port-min", "host-port-max",
         "registries", "default-cpus", "max-cpus", "default-memory-mib", "max-memory-mib", "log-max-lines",

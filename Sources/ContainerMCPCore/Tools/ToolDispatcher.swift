@@ -68,11 +68,11 @@ public actor ToolDispatcher {
         case .loaded(let configuration):
             return Policy(configuration: configuration, paths: paths)
         case .missing:
-            throw Refusal(.configurationMissing, "the server was started without policy settings, so only read tools work", allowed: "read tools; write tools when the server runs from the container-mcp plugin")
+            throw Refusal(.configurationMissing, "the server was started without policy settings, so only read tools work", allowed: "read tools; write tools when the server runs as the Apple container server extension")
         case .writeToolsDisabled:
-            throw Refusal(.configurationWriteToolsOff, "write tools are switched off in the plugin's settings", allowed: "read tools; write tools once the user turns on \"Allow write tools\" in the plugin settings")
+            throw Refusal(.configurationWriteToolsOff, "write tools are switched off in the extension's settings", allowed: "read tools; write tools once the user turns on \"Allow write tools\" in the extension settings")
         case .invalid(let problem):
-            throw Refusal(.configurationInvalid, "the plugin's settings are invalid (\(problem)), so only read tools work", allowed: "read tools; write tools once the user fixes the plugin settings")
+            throw Refusal(.configurationInvalid, "the extension's settings are invalid (\(problem)), so only read tools work", allowed: "read tools; write tools once the user fixes the extension settings")
         }
     }
 
@@ -353,7 +353,7 @@ public actor ToolDispatcher {
         switch configurationState {
         case .loaded(let configuration):
             object["configuration"] = [
-                "state": "loaded", "source": "plugin settings",
+                "state": "loaded", "source": "extension settings",
                 "mountRoots": configuration.mountRoots.map { ["path": $0.path, "writable": $0.writable] },
                 "hostPorts": ["min": configuration.hostPorts.minimum, "max": configuration.hostPorts.maximum],
                 "registries": configuration.registries,
@@ -362,7 +362,7 @@ public actor ToolDispatcher {
         case .missing:
             object["configuration"] = ["state": "missing", "effect": "only read tools work: the server was started without policy settings"]
         case .writeToolsDisabled:
-            object["configuration"] = ["state": "write tools off", "effect": "only read tools work until the user turns on \"Allow write tools\" in the plugin settings"]
+            object["configuration"] = ["state": "write tools off", "effect": "only read tools work until the user turns on \"Allow write tools\" in the extension settings"]
         case .invalid(let problem):
             object["configuration"] = ["state": "invalid", "problem": problem, "effect": "only read tools work"]
         }

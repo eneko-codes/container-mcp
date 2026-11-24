@@ -3,11 +3,11 @@ import Testing
 
 @testable import ContainerMCPCore
 
-/// Limit 1: the policy is the user's. It comes from the plugin's settings as launch arguments,
+/// Limit 1: the policy is the user's. It comes from the extension's settings as launch arguments,
 /// is read once, can be changed by no tool, and without it, or with write tools switched off,
 /// only read tools work.
 @Suite struct ConfigurationTests {
-    /// What the plugin passes with its default settings and write tools on.
+    /// What the extension passes with its default settings and write tools on.
     static func arguments(_ overrides: [String: String] = [:]) -> [String] {
         var values: [String: String] = [
             "write-tools-enabled": "true", "read-only-folders": "/tmp", "writable-folders": "",
@@ -21,7 +21,7 @@ import Testing
         return ConfigurationArguments.options.flatMap { name in values[name].map { ["--\(name)", $0] } ?? [] }
     }
 
-    @Test func pluginSettingsLoad() throws {
+    @Test func extensionSettingsLoad() throws {
         let configuration = try #require(ConfigurationLoader.load(arguments: Self.arguments()).configuration)
         #expect(configuration.mountRoots == [.init(path: "/tmp", resolvedPath: "/private/tmp", writable: false)])
         #expect(configuration.registries == ["docker.io", "ghcr.io"])

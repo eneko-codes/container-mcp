@@ -293,7 +293,7 @@ public struct Policy: Sendable {
     ) throws(Refusal) {
         if protectedContainers.contains(container.id) {
             throw Refusal(
-                .ownershipProtected, "\(container.id) is listed as protected in the plugin settings",
+                .ownershipProtected, "\(container.id) is listed as protected in the extension settings",
                 allowed: "containers that are not listed as protected")
         }
         if action != .read && isInfrastructure(container.labels) {

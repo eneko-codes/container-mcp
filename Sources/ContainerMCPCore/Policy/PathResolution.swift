@@ -35,7 +35,7 @@ public struct ServerPaths: Sendable, Equatable {
     public static let serverName = "container-mcp"
 
     public let home: String
-    /// Holds the server's own state, never the policy, which comes from the plugin's settings.
+    /// Holds the server's own state, never the policy, which comes from the extension's settings.
     public let stateDirectory: String
     public let stateFile: String
     public let auditDirectory: String
@@ -68,9 +68,9 @@ public struct ServerPaths: Sendable, Equatable {
         var paths = [
             stateDirectory,
             auditDirectory,
-            // Claude Code's user settings hold the policy (pluginConfigs); a container that could
-            // write them could loosen its own limits. The settings file may be a symlink, so its
-            // real folder is protected too.
+            // Claude Code's user settings decide what Claude may run without asking; a container
+            // that could write them could widen Claude's own permissions. The settings file may be
+            // a symlink, so its real folder is protected too.
             home + "/.claude",
             ((PathResolution.resolveExisting(home + "/.claude/settings.json") ?? home + "/.claude/settings.json") as NSString)
                 .deletingLastPathComponent,

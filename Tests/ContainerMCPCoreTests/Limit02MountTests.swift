@@ -66,8 +66,8 @@ import Testing
         #expect(rule(approve(fixture, fixture.home + "/LIBRARY")) == .mountProtected)
     }
 
-    /// The plugin's settings live in Claude Code's user settings; a container that could write
-    /// them could loosen its own policy, wherever the settings file really lives.
+    /// Claude Code's settings decide what Claude may run; a container that could write them
+    /// could widen Claude's own permissions, wherever the settings file really lives.
     @Test func claudeSettingsAreProtectedThroughTheirSymlink() async throws {
         let fixture = try await Fixture()
         defer { fixture.remove() }

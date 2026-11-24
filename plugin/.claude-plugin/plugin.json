@@ -1,152 +1,17 @@
 {
   "name": "container-mcp",
-  "displayName": "Apple container",
-  "version": "0.1.0",
-  "description": "Manage the Linux containers of Apple's container tool on this Mac through a local MCP server with a fixed security policy, plus skills for running containers and building images.",
+  "displayName": "Apple container skills",
+  "version": "0.2.0",
+  "description": "Skills for running containers and building images with the Apple container server desktop extension, which provides the tools.",
   "author": {
     "name": "eneko-codes"
   },
   "keywords": [
     "containers",
     "apple-container",
-    "mcp",
+    "skills",
     "macos"
   ],
-  "userConfig": {
-    "write_tools_enabled": {
-      "type": "boolean",
-      "title": "Allow write tools",
-      "description": "Let Claude create, start, stop, exec into, build and delete containers. Off: Claude can only look.",
-      "default": false
-    },
-    "read_only_folders": {
-      "type": "string",
-      "multiple": true,
-      "title": "Folders containers may read",
-      "description": "Absolute paths. Containers may mount these folders, or folders inside them, read-only. Paths may not contain commas.",
-      "default": []
-    },
-    "writable_folders": {
-      "type": "string",
-      "multiple": true,
-      "title": "Folders containers may change",
-      "description": "Absolute paths. Mounts inside these may be read-write when Claude asks for it.",
-      "default": []
-    },
-    "host_port_min": {
-      "type": "number",
-      "title": "Lowest host port",
-      "description": "Published ports always bind 127.0.0.1.",
-      "default": 8000,
-      "min": 1024,
-      "max": 65535
-    },
-    "host_port_max": {
-      "type": "number",
-      "title": "Highest host port",
-      "description": "Published ports always bind 127.0.0.1.",
-      "default": 8999,
-      "min": 1024,
-      "max": 65535
-    },
-    "registries": {
-      "type": "string",
-      "multiple": true,
-      "title": "Registries images may come from",
-      "description": "Bare domains, such as docker.io and ghcr.io.",
-      "default": [
-        "docker.io",
-        "ghcr.io"
-      ]
-    },
-    "default_cpus": {
-      "type": "number",
-      "title": "Default CPUs per container",
-      "description": "Used when Claude does not ask for a number.",
-      "default": 2,
-      "min": 1,
-      "max": 64
-    },
-    "max_cpus": {
-      "type": "number",
-      "title": "Maximum CPUs per container",
-      "description": "Claude cannot ask for more.",
-      "default": 4,
-      "min": 1,
-      "max": 64
-    },
-    "default_memory_mib": {
-      "type": "number",
-      "title": "Default memory per container (MiB)",
-      "description": "Used when Claude does not ask for an amount.",
-      "default": 1024,
-      "min": 200,
-      "max": 1048576
-    },
-    "max_memory_mib": {
-      "type": "number",
-      "title": "Maximum memory per container (MiB)",
-      "description": "Claude cannot ask for more.",
-      "default": 4096,
-      "min": 200,
-      "max": 1048576
-    },
-    "log_max_lines": {
-      "type": "number",
-      "title": "Maximum log lines",
-      "description": "The most lines one log call returns.",
-      "default": 500,
-      "min": 1,
-      "max": 100000
-    },
-    "log_max_bytes": {
-      "type": "number",
-      "title": "Maximum log bytes",
-      "description": "The most bytes one log call returns.",
-      "default": 65536,
-      "min": 1,
-      "max": 10485760
-    },
-    "exec_timeout_seconds": {
-      "type": "number",
-      "title": "Command timeout (seconds)",
-      "description": "A command run in a container is killed after this.",
-      "default": 60,
-      "min": 1,
-      "max": 3600
-    },
-    "exec_max_output_bytes": {
-      "type": "number",
-      "title": "Command output limit (bytes)",
-      "description": "The most output one command returns.",
-      "default": 65536,
-      "min": 1,
-      "max": 10485760
-    },
-    "pull_timeout_seconds": {
-      "type": "number",
-      "title": "Image download timeout (seconds)",
-      "description": "A pull is abandoned after this.",
-      "default": 600,
-      "min": 1,
-      "max": 86400
-    },
-    "build_timeout_seconds": {
-      "type": "number",
-      "title": "Image build timeout (seconds)",
-      "description": "A build is abandoned after this.",
-      "default": 1800,
-      "min": 1,
-      "max": 86400
-    },
-    "protected_containers": {
-      "type": "string",
-      "multiple": true,
-      "title": "Containers Claude must never touch",
-      "description": "Container names. Claude can see that they exist but cannot start, stop, run commands in, read, or delete them. Every other container can be managed.",
-      "default": []
-    }
-  },
   "license": "MIT",
   "repository": "https://github.com/eneko-codes/container-mcp"
 }

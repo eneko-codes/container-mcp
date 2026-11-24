@@ -4,9 +4,9 @@ import Foundation
 /// read-only mode.
 public enum ConfigurationState: Sendable, Equatable {
     case loaded(Configuration)
-    /// The server was started without policy options, for example outside the plugin.
+    /// The server was started without policy options, for example outside the desktop extension.
     case missing
-    /// The user left the plugin's "write tools" setting off. The settings are still read,
+    /// The user left the extension's "Allow write tools" setting off. The settings are still read,
     /// so that the protected list keeps applying to the read tools.
     case writeToolsDisabled(Configuration)
     case invalid(problem: String)

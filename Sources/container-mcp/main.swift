@@ -19,17 +19,17 @@ _ = fcntl(protocolOutput, F_SETFD, FD_CLOEXEC)
 HostEnvironment.scrub()
 
 let paths = ServerPaths.forCurrentUser()
-// The plugin passes the user's settings as launch arguments; read them before anything else.
+// The desktop extension passes the user's settings as launch arguments; read them before anything else.
 let configurationState = ConfigurationLoader.load(arguments: Array(CommandLine.arguments.dropFirst()))
 switch configurationState {
 case .loaded:
-    FileHandle.standardError.write(Data("container-mcp: policy loaded from the plugin settings\n".utf8))
+    FileHandle.standardError.write(Data("container-mcp: policy loaded from the extension settings\n".utf8))
 case .missing:
     FileHandle.standardError.write(Data("container-mcp: started without policy settings; only read tools work\n".utf8))
 case .writeToolsDisabled:
-    FileHandle.standardError.write(Data("container-mcp: write tools are off in the plugin settings; only read tools work\n".utf8))
+    FileHandle.standardError.write(Data("container-mcp: write tools are off in the extension settings; only read tools work\n".utf8))
 case .invalid(let problem):
-    FileHandle.standardError.write(Data("container-mcp: invalid plugin settings (\(problem)); only read tools work\n".utf8))
+    FileHandle.standardError.write(Data("container-mcp: invalid extension settings (\(problem)); only read tools work\n".utf8))
 }
 
 let dispatcher = ToolDispatcher(

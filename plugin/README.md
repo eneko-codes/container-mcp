@@ -1,45 +1,21 @@
-# container-mcp plugin
+# container-mcp skills plugin
 
-The Claude plugin for this repository: the container-mcp server, started over stdio, and two
-skills.
+The two skills for working with container-mcp, packaged as a Claude plugin with no server.
+The server itself ships separately as the **Apple container server** desktop extension
+(`make mcpb` at the repository root), which the desktop app runs on this Mac for chat,
+Cowork and the Code tab.
 
 | Path | Contents |
 |---|---|
-| `.claude-plugin/plugin.json` | Manifest |
-| `.mcp.json` | Starts `${CLAUDE_PLUGIN_ROOT}/server/container-mcp` as the MCP server `container` |
-| `server/` | The release binary, built locally and never committed |
-| `skills/container-management` | Running and managing containers through the server |
+| `.claude-plugin/plugin.json` | Manifest ("Apple container skills") |
+| `skills/container-management` | Running and managing containers through the server's tools |
 | `skills/container-image-build` | Building an image from a project folder |
 
-The plugin holds no value and no path of the user's: its settings (`userConfig` in the
-manifest) are filled in by the user, and `.mcp.json` passes them to the server as launch
-arguments. The options are described in the top-level README.
+## Install
 
-## Install in Claude Code
+- Claude app: `make plugin-zip` at the repository root, then Customize → Plugins → Upload
+  `dist/container-mcp-skills.zip`.
+- Claude Code in a terminal: `claude plugin marketplace add <repository folder>`, then
+  `claude plugin install container-mcp@container-mcp`.
 
-From the repository root:
-
-```bash
-make plugin
-claude plugin marketplace add "$PWD"
-claude plugin install container-mcp@container-mcp
-```
-
-Then set the policy with `/plugin configure container-mcp@container-mcp` in a session and
-restart Claude Code. Write tools stay off until **Allow write tools** is on.
-
-`make plugin` builds the server and copies it into `plugin/server/`. The marketplace is
-added from a local path, so Claude Code loads the plugin in place from this folder: after
-rebuilding, `/reload-plugins` or a new session picks up the new binary. Rerun `make plugin`
-after every `git pull`.
-
-The tools appear as `mcp__plugin_container-mcp_container__<tool>`.
-
-## Other Claude apps
-
-Plugins installed from the command line stay on this Mac. In the desktop app's Code tab
-they load like in the terminal. For chat and Cowork, the plugin is added to the claude.ai
-account through Customize → Plugins (upload a zip of this folder with `server/` built in),
-and whether those surfaces start a plugin's local server is to be checked there: the
-current documentation says Cowork starts it when the session runs on this Mac and chat does
-not.
+Without the extension the skills still load, but there are no container tools for them to use.
