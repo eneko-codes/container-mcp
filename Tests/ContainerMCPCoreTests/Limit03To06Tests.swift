@@ -191,14 +191,18 @@ private func createdSpecification(_ fixture: Fixture) async -> RunSpecification?
         #expect(refusal { () throws(Refusal) in try Policy.approveEnvironment(["=x"]) }?.rule == .environmentInvalid)
     }
 
-    @Test func scrubRemovesTheServersOwnEnvironment() {
-        setenv("CONTAINER_MCP_TEST_TOKEN", "secret", 1)
-        setenv("SSH_AUTH_SOCK", "/tmp/agent.sock", 1)
-        HostEnvironment.scrub()
-        #expect(ProcessInfo.processInfo.environment["CONTAINER_MCP_TEST_TOKEN"] == nil)
-        #expect(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"] == nil)
-        #expect(Set(ProcessInfo.processInfo.environment.keys).isSubset(of: HostEnvironment.kept))
-        #expect(ProcessInfo.processInfo.environment["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
+    /// The real scrub runs in the server binary at startup; the process-wide unsetenv is not run
+    /// here because the test process also carries the integration tests' opt-in variable.
+    /// The integration suite checks the end result: no host variable inside a container.
+    @Test func scrubKeepsOnlyTheVariablesFoundationNeeds() {
+        let names = ["HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "BUILDKIT_COLORS", "NO_COLOR", "CONTAINER_DEBUG"]
+        #expect(Set(HostEnvironment.namesToRemove(from: names)) == ["SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "BUILDKIT_COLORS", "NO_COLOR", "CONTAINER_DEBUG"])
+    }
+
+    @Test func currentNamesReadsTheProcessEnvironment() {
+        setenv("CONTAINER_MCP_TEST_NAME", "x", 1)
+        defer { unsetenv("CONTAINER_MCP_TEST_NAME") }
+        #expect(HostEnvironment.currentNames().contains("CONTAINER_MCP_TEST_NAME"))
     }
 }
 

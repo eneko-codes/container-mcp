@@ -10,11 +10,15 @@ public enum HostEnvironment {
     public static let kept: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "PATH"]
 
     public static func scrub() {
-        for name in currentNames() where !kept.contains(name) {
+        for name in namesToRemove(from: currentNames()) {
             unsetenv(name)
         }
         // A client-supplied PATH could point at anything; the server only ever runs /bin/launchctl.
         setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1)
+    }
+
+    static func namesToRemove(from names: [String]) -> [String] {
+        names.filter { !kept.contains($0) }
     }
 
     static func currentNames() -> [String] {
