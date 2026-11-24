@@ -87,6 +87,20 @@ import Testing
         #expect(await fixture.call(.containerStop, ["id": "web"]).refused(by: .serviceVersionMismatch))
     }
 
+    /// The desktop extension's manifest is written by hand; it must pass every option the
+    /// server requires and list exactly the tools the server offers.
+    @Test func extensionManifestMatchesTheServer() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("extension/manifest.json"))
+        let manifest = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let server = try #require(manifest["server"] as? [String: Any])
+        let configuration = try #require(server["mcp_config"] as? [String: Any])
+        let arguments = try #require(configuration["args"] as? [String])
+        #expect(arguments.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) } == ConfigurationArguments.options)
+        let tools = try #require(manifest["tools"] as? [[String: Any]]).compactMap { $0["name"] as? String }
+        #expect(Set(tools) == Set(ToolName.allCases.map(\.rawValue)))
+    }
+
     @Test func unknownToolIsAnError() async throws {
         let fixture = try await Fixture()
         defer { fixture.remove() }

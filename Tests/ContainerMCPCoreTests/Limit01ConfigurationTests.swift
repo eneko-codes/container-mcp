@@ -37,6 +37,23 @@ import Testing
         #expect(configuration.protectedContainers.isEmpty)
     }
 
+    /// The desktop app expands a list of folders into one argument per folder, and passes an
+    /// unset option as its own placeholder.
+    @Test func desktopFormWithLooseListsAndPlaceholdersLoads() throws {
+        var arguments = Self.arguments(["read-only-folders": "/tmp", "writable-folders": "", "protected-containers": ""])
+        let readOnly = try #require(arguments.firstIndex(of: "--read-only-folders"))
+        arguments.insert("/usr", at: readOnly + 2)
+        let writable = try #require(arguments.firstIndex(of: "--writable-folders"))
+        arguments[writable + 1] = "${user_config.writable_folders}"
+        let configuration = try #require(ConfigurationLoader.load(arguments: arguments).configuration)
+        #expect(configuration.mountRoots.map(\.path) == ["/tmp", "/usr"])
+        #expect(configuration.protectedContainers.isEmpty)
+    }
+
+    @Test func placeholderForASingleValueIsInvalid() {
+        #expect(ConfigurationLoader.load(arguments: Self.arguments(["max-cpus": "${user_config.max_cpus}"])).configuration == nil)
+    }
+
     @Test func noArgumentsMeansMissing() {
         #expect(ConfigurationLoader.load(arguments: []) == .missing)
     }
@@ -65,7 +82,9 @@ import Testing
         }.map(\.element)
         #expect(ConfigurationLoader.load(arguments: withoutPorts).configuration == nil)
         #expect(ConfigurationLoader.load(arguments: Self.arguments() + ["--max-cpus", "64"]).configuration == nil)
-        #expect(ConfigurationLoader.load(arguments: Array(Self.arguments().dropLast())).configuration == nil)
+        var withoutValue = Self.arguments()
+        withoutValue.remove(at: withoutValue.firstIndex(of: "--max-cpus")! + 1)
+        #expect(ConfigurationLoader.load(arguments: withoutValue).configuration == nil)
     }
 
     @Test func badValuesMakeTheSettingsInvalid() {

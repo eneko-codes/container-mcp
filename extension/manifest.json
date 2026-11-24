@@ -1,0 +1,316 @@
+{
+  "manifest_version": "0.3",
+  "name": "container-mcp",
+  "display_name": "Apple container",
+  "version": "0.1.0",
+  "description": "Manage the Linux containers of Apple's container tool on this Mac under a strict policy",
+  "long_description": "A local MCP server written in Swift that lets Claude list, run, start, stop, exec into, build and delete the Linux containers that Apple's container tool runs on this Mac.\n\nEvery call passes one policy: host folders only inside the folders you choose (read-only unless you allow writing), published ports on 127.0.0.1 only, images only from the registries you list, CPU, memory and time limits, an audit log of every call, and a list of containers Claude may never touch. Write tools stay off until you turn on Allow write tools.\n\nNeeds container 1.7.1 installed and its service running. Not affiliated with or endorsed by Apple Inc.",
+  "author": {
+    "name": "eneko-codes",
+    "url": "https://github.com/eneko-codes"
+  },
+  "homepage": "https://github.com/eneko-codes/container-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eneko-codes/container-mcp"
+  },
+  "license": "MIT",
+  "keywords": [
+    "containers",
+    "apple-container",
+    "linux",
+    "macos",
+    "docker"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/container-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/container-mcp",
+      "args": [
+        "--write-tools-enabled",
+        "${user_config.write_tools_enabled}",
+        "--read-only-folders",
+        "${user_config.read_only_folders}",
+        "--writable-folders",
+        "${user_config.writable_folders}",
+        "--host-port-min",
+        "${user_config.host_port_min}",
+        "--host-port-max",
+        "${user_config.host_port_max}",
+        "--registries",
+        "${user_config.registries}",
+        "--default-cpus",
+        "${user_config.default_cpus}",
+        "--max-cpus",
+        "${user_config.max_cpus}",
+        "--default-memory-mib",
+        "${user_config.default_memory_mib}",
+        "--max-memory-mib",
+        "${user_config.max_memory_mib}",
+        "--log-max-lines",
+        "${user_config.log_max_lines}",
+        "--log-max-bytes",
+        "${user_config.log_max_bytes}",
+        "--exec-timeout-seconds",
+        "${user_config.exec_timeout_seconds}",
+        "--exec-max-output-bytes",
+        "${user_config.exec_max_output_bytes}",
+        "--pull-timeout-seconds",
+        "${user_config.pull_timeout_seconds}",
+        "--build-timeout-seconds",
+        "${user_config.build_timeout_seconds}",
+        "--protected-containers",
+        "${user_config.protected_containers}"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "system_status",
+      "description": "Container system status"
+    },
+    {
+      "name": "containers_list",
+      "description": "List containers"
+    },
+    {
+      "name": "container_inspect",
+      "description": "Inspect a container"
+    },
+    {
+      "name": "container_logs",
+      "description": "Container logs"
+    },
+    {
+      "name": "container_stats",
+      "description": "Container statistics"
+    },
+    {
+      "name": "images_list",
+      "description": "List images"
+    },
+    {
+      "name": "image_inspect",
+      "description": "Inspect an image"
+    },
+    {
+      "name": "volumes_list",
+      "description": "List volumes"
+    },
+    {
+      "name": "networks_list",
+      "description": "List networks"
+    },
+    {
+      "name": "disk_usage",
+      "description": "Disk usage"
+    },
+    {
+      "name": "container_run",
+      "description": "Run a container"
+    },
+    {
+      "name": "container_start",
+      "description": "Start a container"
+    },
+    {
+      "name": "container_stop",
+      "description": "Stop a container"
+    },
+    {
+      "name": "container_exec",
+      "description": "Run a command in a container"
+    },
+    {
+      "name": "image_pull",
+      "description": "Pull an image"
+    },
+    {
+      "name": "image_build",
+      "description": "Build an image"
+    },
+    {
+      "name": "volume_create",
+      "description": "Create a volume"
+    },
+    {
+      "name": "network_create",
+      "description": "Create a network"
+    },
+    {
+      "name": "system_start",
+      "description": "Start the container service"
+    },
+    {
+      "name": "container_delete",
+      "description": "Delete a container"
+    },
+    {
+      "name": "image_delete",
+      "description": "Delete an image"
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete a volume"
+    },
+    {
+      "name": "network_delete",
+      "description": "Delete a network"
+    }
+  ],
+  "user_config": {
+    "write_tools_enabled": {
+      "type": "boolean",
+      "title": "Allow write tools",
+      "description": "Let Claude create, start, stop, exec into, build and delete containers. Off: Claude can only look.",
+      "required": false,
+      "default": false
+    },
+    "read_only_folders": {
+      "type": "directory",
+      "title": "Folders containers may read",
+      "description": "Absolute paths. Containers may mount these folders, or folders inside them, read-only. Paths may not contain commas.",
+      "required": false,
+      "multiple": true,
+      "default": []
+    },
+    "writable_folders": {
+      "type": "directory",
+      "title": "Folders containers may change",
+      "description": "Absolute paths. Mounts inside these may be read-write when Claude asks for it.",
+      "required": false,
+      "multiple": true,
+      "default": []
+    },
+    "host_port_min": {
+      "type": "number",
+      "title": "Lowest host port",
+      "description": "Published ports always bind 127.0.0.1.",
+      "required": false,
+      "default": 8000,
+      "min": 1024,
+      "max": 65535
+    },
+    "host_port_max": {
+      "type": "number",
+      "title": "Highest host port",
+      "description": "Published ports always bind 127.0.0.1.",
+      "required": false,
+      "default": 8999,
+      "min": 1024,
+      "max": 65535
+    },
+    "registries": {
+      "type": "string",
+      "title": "Registries images may come from",
+      "description": "Bare domains, such as docker.io and ghcr.io. Separate several with commas.",
+      "required": false,
+      "default": "docker.io,ghcr.io"
+    },
+    "default_cpus": {
+      "type": "number",
+      "title": "Default CPUs per container",
+      "description": "Used when Claude does not ask for a number.",
+      "required": false,
+      "default": 2,
+      "min": 1,
+      "max": 64
+    },
+    "max_cpus": {
+      "type": "number",
+      "title": "Maximum CPUs per container",
+      "description": "Claude cannot ask for more.",
+      "required": false,
+      "default": 4,
+      "min": 1,
+      "max": 64
+    },
+    "default_memory_mib": {
+      "type": "number",
+      "title": "Default memory per container (MiB)",
+      "description": "Used when Claude does not ask for an amount.",
+      "required": false,
+      "default": 1024,
+      "min": 200,
+      "max": 1048576
+    },
+    "max_memory_mib": {
+      "type": "number",
+      "title": "Maximum memory per container (MiB)",
+      "description": "Claude cannot ask for more.",
+      "required": false,
+      "default": 4096,
+      "min": 200,
+      "max": 1048576
+    },
+    "log_max_lines": {
+      "type": "number",
+      "title": "Maximum log lines",
+      "description": "The most lines one log call returns.",
+      "required": false,
+      "default": 500,
+      "min": 1,
+      "max": 100000
+    },
+    "log_max_bytes": {
+      "type": "number",
+      "title": "Maximum log bytes",
+      "description": "The most bytes one log call returns.",
+      "required": false,
+      "default": 65536,
+      "min": 1,
+      "max": 10485760
+    },
+    "exec_timeout_seconds": {
+      "type": "number",
+      "title": "Command timeout (seconds)",
+      "description": "A command run in a container is killed after this.",
+      "required": false,
+      "default": 60,
+      "min": 1,
+      "max": 3600
+    },
+    "exec_max_output_bytes": {
+      "type": "number",
+      "title": "Command output limit (bytes)",
+      "description": "The most output one command returns.",
+      "required": false,
+      "default": 65536,
+      "min": 1,
+      "max": 10485760
+    },
+    "pull_timeout_seconds": {
+      "type": "number",
+      "title": "Image download timeout (seconds)",
+      "description": "A pull is abandoned after this.",
+      "required": false,
+      "default": 600,
+      "min": 1,
+      "max": 86400
+    },
+    "build_timeout_seconds": {
+      "type": "number",
+      "title": "Image build timeout (seconds)",
+      "description": "A build is abandoned after this.",
+      "required": false,
+      "default": 1800,
+      "min": 1,
+      "max": 86400
+    },
+    "protected_containers": {
+      "type": "string",
+      "title": "Containers Claude must never touch",
+      "description": "Container names. Claude can see that they exist but cannot start, stop, run commands in, read, or delete them. Every other container can be managed. Separate several with commas.",
+      "required": false,
+      "default": ""
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin"
+    ]
+  }
+}

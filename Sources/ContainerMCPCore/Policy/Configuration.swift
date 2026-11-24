@@ -110,24 +110,45 @@ public enum ConfigurationArguments {
         "build-timeout-seconds", "protected-containers",
     ]
 
-    /// Splits `arguments` into option values, refusing anything that is not a known `--option value` pair.
-    static func values(_ arguments: [String]) throws -> [String: String] {
-        guard arguments.count.isMultiple(of: 2) else {
-            throw Error(description: "options must come in --name value pairs")
-        }
-        var values: [String: String] = [:]
-        for index in stride(from: 0, to: arguments.count, by: 2) {
+    /// Options whose value is a list.
+    static let listOptions: Set<String> = ["read-only-folders", "writable-folders", "registries", "protected-containers"]
+
+    /// Reads `--option value…` groups. The two hosts pass lists differently: Claude Code joins
+    /// a list into one comma-separated argument, while the desktop app expands a list of
+    /// folders into one argument per folder. Both are accepted. An option the desktop app
+    /// leaves unset arrives as its own `${user_config.…}` placeholder, which counts as empty.
+    static func values(_ arguments: [String]) throws -> [String: [String]] {
+        var values: [String: [String]] = [:]
+        var index = 0
+        while index < arguments.count {
             let flag = arguments[index]
             guard flag.hasPrefix("--") else { throw Error(description: "\(flag) is not an option") }
             let name = String(flag.dropFirst(2))
             guard options.contains(name) else { throw Error(description: "unknown option --\(name)") }
             guard values[name] == nil else { throw Error(description: "option --\(name) is given twice") }
-            values[name] = arguments[index + 1]
+            var collected: [String] = []
+            index += 1
+            while index < arguments.count, !arguments[index].hasPrefix("--") {
+                if !isPlaceholder(arguments[index]) { collected.append(arguments[index]) }
+                index += 1
+            }
+            if listOptions.contains(name) {
+                values[name] = collected.flatMap { $0.split(separator: ",") }
+                    .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            } else {
+                guard collected.count == 1 else { throw Error(description: "option --\(name) needs exactly one value") }
+                values[name] = collected
+            }
         }
         if let missing = options.first(where: { values[$0] == nil }) {
             throw Error(description: "option --\(missing) is missing")
         }
         return values
+    }
+
+    static func isPlaceholder(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("${") && trimmed.hasSuffix("}")
     }
 
     /// Whether the user switched the write tools on.
@@ -194,21 +215,20 @@ public enum ConfigurationArguments {
             protectedContainers: list(values, "protected-containers"))
     }
 
-    /// Claude Code joins the entries of a list option with commas, so a comma can never be
-    /// part of an entry. Blank entries, which an empty list produces, are dropped.
-    static func list(_ values: [String: String], _ name: String) -> [String] {
-        (values[name] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    /// Commas separate entries in both hosts' forms, so a comma can never be part of an entry.
+    static func list(_ values: [String: [String]], _ name: String) -> [String] {
+        values[name] ?? []
     }
 
-    static func integer(_ values: [String: String], _ name: String) throws -> Int {
-        guard let text = values[name], let number = Int(text.trimmingCharacters(in: .whitespaces)) else {
+    static func integer(_ values: [String: [String]], _ name: String) throws -> Int {
+        guard let text = values[name]?.first, let number = Int(text.trimmingCharacters(in: .whitespaces)) else {
             throw Error(description: "--\(name) must be a whole number")
         }
         return number
     }
 
-    static func boolean(_ values: [String: String], _ name: String) throws -> Bool {
-        switch values[name] {
+    static func boolean(_ values: [String: [String]], _ name: String) throws -> Bool {
+        switch values[name]?.first {
         case "true": return true
         case "false": return false
         default: throw Error(description: "--\(name) must be true or false")
