@@ -38,7 +38,7 @@ plugin-skills-zip:
 	rm -rf dist/skills-only
 	mkdir -p dist/skills-only/.claude-plugin
 	cp -R plugin/skills dist/skills-only/skills
-	python3 -I -c 'import json; m = json.load(open("plugin/.claude-plugin/plugin.json")); m.pop("userConfig", None); m["description"] = "Skills for running containers and building images with the Apple container desktop extension, which provides the tools."; json.dump(m, open("dist/skills-only/.claude-plugin/plugin.json", "w"), indent=2)'
+	python3 -I -c 'import json; m = json.load(open("plugin/.claude-plugin/plugin.json")); m.pop("userConfig", None); m["displayName"] = "Apple container skills"; m["description"] = "Skills for running containers and building images with the Apple container desktop extension, which provides the tools."; json.dump(m, open("dist/skills-only/.claude-plugin/plugin.json", "w"), indent=2)'
 	rm -f dist/container-mcp-skills.zip
 	cd dist/skills-only && zip -qrX ../container-mcp-skills.zip . -x '.DS_Store' '*/.DS_Store'
 	@echo "Built dist/container-mcp-skills.zip"
