@@ -189,11 +189,12 @@ await call("image_delete", ["reference": .string(image)])
 print("\n## checks")
 // The build starts the shared builder; the policy forbids this client to stop it, so it can
 // only say when a run left it running.
-func builderRunning(_ listing: String) -> Bool {
+@MainActor func builderRunning(_ listing: String) -> Bool {
     let containers = object(listing)["containers"] as? [[String: Any]] ?? []
     return containers.contains { ($0["id"] as? String) == "buildkit" && ($0["status"] as? String) == "running" }
 }
-if !builderRunning(initialList) && builderRunning(await call("containers_list", ["all": true])) {
+let finalList = await call("containers_list", ["all": true])
+if !builderRunning(initialList) && builderRunning(finalList) {
     print("buildkit was stopped before this run and is running now: stop it with `container stop buildkit`")
 }
 let allTools = Set(tools.map(\.name))
