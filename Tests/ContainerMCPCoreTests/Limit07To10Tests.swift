@@ -245,6 +245,14 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
         #expect(try entries(fixture).count == 2)
     }
 
+    /// Both folders are inside ~/Library today; naming them keeps them protected if that changes.
+    @Test func configurationAndAuditFoldersAreNamedAsProtected() {
+        let paths = ServerPaths(home: "/Users/user")
+        let protected = paths.protectedPaths(containerApplicationRoot: nil)
+        #expect(protected.contains(PathResolution.resolveAllowingMissing(paths.auditDirectory)))
+        #expect(protected.contains(PathResolution.resolveAllowingMissing(paths.configurationDirectory)))
+    }
+
     @Test func auditFolderCannotBeMounted() async throws {
         let fixture = try await Fixture()
         defer { fixture.remove() }

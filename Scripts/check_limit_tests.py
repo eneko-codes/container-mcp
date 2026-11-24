@@ -5,7 +5,7 @@ For each limit, the script edits one line of the source to switch the limit off,
 runs the unit tests and expects at least one to fail, then restores the file. It finishes by
 confirming the working tree is unchanged and the unmodified tests pass again.
 
-Run from the repository root: Scripts/check_limit_tests.py
+Run from the repository root: Scripts/check_limit_tests.py [words to select mutations by description]
 """
 
 import subprocess
@@ -70,8 +70,8 @@ MUTATIONS = [
     ("8", "unlisted registries are accepted", POLICY,
      'guard ImageReference.isAllowed(domain: domain, registries: configuration.registries) else {', 'guard true else {'),
     ("8", "build contexts outside the roots are accepted", POLICY,
-     'contextDirectory = try approveHostPath(input.contextPath, wantsWritable: false, containerApplicationRoot: context.containerApplicationRoot, purpose: "build context").resolved',
-     'contextDirectory = PathResolution.resolveExisting(input.contextPath) ?? input.contextPath'),
+     'contextDirectory = try approveHostPath(input.contextPath,',
+     'contextDirectory = try Policy(configuration: Configuration(mountRoots: [.init(path: "/", resolvedPath: "/", writable: false)], hostPorts: configuration.hostPorts, registries: configuration.registries, resources: configuration.resources, logs: configuration.logs, exec: configuration.exec, pullTimeoutSeconds: 1, buildTimeoutSeconds: 1, adoptedContainers: []), paths: paths).approveHostPath(input.contextPath,'),
     ("8", "base images in the Dockerfile are not checked", POLICY,
      'for image in scan.externalImages {', 'for image in [String]() {'),
     ("9", "environment values are written to the audit log", AUDIT,
@@ -101,8 +101,11 @@ def tests_fail():
 def main():
     if run(["git", "diff", "--quiet"]).returncode != 0:
         sys.exit("The working tree has changes; commit or stash them first.")
+    selected = sys.argv[1:]
     results = []
     for limit, description, file, old, new in MUTATIONS:
+        if selected and not any(word in description for word in selected):
+            continue
         path = Path(file)
         original = path.read_text()
         if original.count(old) != 1:
