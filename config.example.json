@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "mountRoots": [
+    { "path": "/Users/user/Code", "writable": false },
+    { "path": "/Users/user/Scratch", "writable": true }
+  ],
+  "hostPorts": { "min": 8000, "max": 8999 },
+  "registries": ["docker.io", "ghcr.io"],
+  "resources": { "defaultCpus": 2, "maxCpus": 4, "defaultMemoryMiB": 1024, "maxMemoryMiB": 4096 },
+  "logs": { "maxLines": 500, "maxBytes": 65536 },
+  "exec": { "timeoutSeconds": 60, "maxOutputBytes": 65536 },
+  "pull": { "timeoutSeconds": 600 },
+  "build": { "timeoutSeconds": 1800 },
+  "adopted": []
+}
