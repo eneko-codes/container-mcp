@@ -91,7 +91,7 @@ let mutations: [Mutation] = [
              find: "limits: 1...limits.maximumLines)",
              replace: "limits: 1...Int.max)"),
     Mutation(limit: "7", description: "logs are not capped at the configured bytes", file: dispatcher,
-             find: "maximumBytes: limits.maximumBytes)",
+             find: "maximumBytes: bytes)",
              replace: "maximumBytes: Int.max)"),
     Mutation(limit: "7", description: "an exec timeout above the maximum reaches the policy", file: dispatcher,
              find: "in: 1...limits.maximumTimeoutSeconds))",
