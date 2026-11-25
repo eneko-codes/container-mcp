@@ -27,6 +27,7 @@ public enum Rule: String, Sendable, Codable, CaseIterable {
     case resourceCPUs = "resources.cpus"
     case resourceMemory = "resources.memory"
     case boundsExecTimeout = "bounds.exec-timeout"
+    case boundsResultSize = "bounds.result-size"
     case imageRegistry = "image.registry"
     case buildContext = "build.context"
 }
@@ -43,6 +44,17 @@ public struct Refusal: Error, Sendable, Equatable, CustomStringConvertible {
         self.rule = rule
         self.reason = reason
         self.allowed = allowed
+    }
+
+    /// Most entries of a configured list that a refusal names.
+    static let listedEntries = 5
+
+    /// A list from the configuration as a refusal may print it: the first few entries, each
+    /// clipped, and how many were left out.
+    static func list(_ entries: [String]) -> String {
+        let shown = entries.prefix(listedEntries).map(ToolStandard.echo).joined(separator: ", ")
+        let others = entries.count - listedEntries
+        return others > 0 ? "\(shown) and \(others) more" : shown
     }
 
     public var description: String {

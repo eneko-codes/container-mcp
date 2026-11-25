@@ -75,9 +75,9 @@ cannot silently drop a limit.
 | `registries` | Registry domains images may be pulled from. `docker.io`, `registry-1.docker.io` and `index.docker.io` count as one. | docker.io, ghcr.io |
 | `default_cpus`, `max_cpus` | CPUs a container gets when the call names none, and the most it may ask for | 2, 4 |
 | `default_memory_mib`, `max_memory_mib` | Memory, the same way (at least 200 MiB) | 1024, 4096 |
-| `log_max_lines`, `log_max_bytes` | The most a log call returns | 500, 65536 |
-| `exec_timeout_seconds`, `exec_max_output_bytes` | Default and maximum time an exec may run before it is killed, and the most stdout plus stderr it returns | 60, 65536 |
-| `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned | 600, 1800 |
+| `log_max_lines`, `log_max_bytes` | The most lines and bytes one page of a log returns. Whatever is set, at most 40000 apply. | 500, 65536 |
+| `exec_timeout_seconds`, `exec_max_output_bytes` | Default and maximum time an exec may run before it is killed, and the most stdout plus stderr it returns. Whatever is set, at most 170 seconds and 40000 characters apply. | 60, 65536 |
+| `pull_timeout_seconds`, `build_timeout_seconds` | Time after which a pull (or a run that has to pull) and a build are abandoned. Whatever is set, at most 170 seconds apply. | 600, 1800 |
 | `protected_containers` | Containers no tool may touch: no start, stop, exec, delete, inspect, logs or stats. Listing shows only their name and status. Every other container may be managed. | none |
 
 Folder lists arrive as one argument per folder; registries and protected containers are
@@ -105,13 +105,13 @@ schema. Annotations: R read-only, D destructive, I idempotent, O reaches the net
 | Tool | Inputs | Hints | Notes |
 |---|---|---|---|
 | `system_status` | – | R | Service running, versions, whether they match, configuration state |
-| `containers_list` | `all?` | R | Every container, with `owned`, `protected` and `infrastructure`; protected ones show only name and status |
-| `container_inspect` | `id` | R | Environment values redacted to `KEY=<redacted>`; refuses protected containers |
-| `container_logs` | `id`, `lines?`, `boot?` | R | Last lines, capped at the configured lines and bytes |
+| `containers_list` | `all?`, `limit?`, `offset?` | R | Containers sorted by id, one page, with `owned`, `protected` and `infrastructure`; protected ones show only name and status |
+| `container_inspect` | `id`, `fields?[]` | R | Environment values redacted to `KEY=<redacted>`; refuses protected containers; whole, by member, or refused with the size of each member |
+| `container_logs` | `id`, `limit?`, `offset?`, `boot?` | R | The last 100 lines; earlier ones by `offset`, counting back from the end; a page is capped at the configured lines and bytes |
 | `container_stats` | `id` | R | One snapshot of a running container |
-| `images_list` | – | R | With `owned` and `infrastructure` |
-| `image_inspect` | `reference` | R | Index and per-platform configuration |
-| `volumes_list`, `networks_list` | – | R | With `owned` |
+| `images_list` | `limit?`, `offset?` | R | Sorted by reference, one page, with `owned` and `infrastructure` |
+| `image_inspect` | `reference`, `fields?[]` | R | Index and per-platform configuration; whole, by member, or refused with the size of each member |
+| `volumes_list`, `networks_list` | `limit?`, `offset?` | R | Sorted by name, one page, with `owned` |
 | `disk_usage` | – | R | Images, containers, volumes |
 | `container_run` | `image`, `name`, `start?`, `command?[]`, `entrypoint?`, `env?[]`, `workdir?`, `user?`, `cpus?`, `memory_mib?`, `ports?[{host_port, container_port, protocol?}]`, `mounts?[{host_path, container_path, writable?}]`, `volumes?[{volume, container_path, read_only?}]`, `network?`, `read_only_rootfs?`, `init?` | O | Creates a labelled container, started in the background unless `start` is false |
 | `container_start` | `id` | I | Any container that is not protected or the container tool's own |
@@ -165,9 +165,13 @@ limit off in turn and checks that a test then fails.
    nothing to pass on.
 6. **No shell.** Commands are argument arrays from the tool input to the service; a string
    is refused. Nothing is interpolated anywhere.
-7. **Bounds.** Logs are cut to the configured lines and bytes. Exec has a timeout (the
-   process is killed) and an output cap. Pull and build have timeouts and report MCP
-   progress. Every run gets the default CPUs and memory and cannot exceed the maximums.
+7. **Bounds.** A page of a log holds at most the configured lines and bytes, and earlier
+   lines are read with `offset`. Exec has a timeout (the process is killed) and an output
+   cap. Pull and build have timeouts and report MCP progress. Every run gets the default CPUs
+   and memory and cannot exceed the maximums: a count, size or time that is outside its range
+   is moved to the nearest allowed value and the result says which was used, while a port is
+   refused. Every setting that bounds a result or a time is held to what the tool standard
+   allows (below).
 8. **Images.** Pulls only from listed registries. A run whose image is not stored locally
    would pull it, so the same rule applies, also to the service's init image. A build
    context must be inside a mount root and the Dockerfile inside the context. The images a
@@ -180,6 +184,31 @@ limit off in turn and checks that a test then fails.
    with `O_APPEND`. Its folder can never be mounted.
 10. **Refusals** read `Refused by rule <rule>: <reason>. Allowed: <what would be>` and never
     include an environment or build-argument value.
+
+## Result sizes and time
+
+The tools follow the owner's MCP tool standard: no result is longer than 40000
+characters, whichever client calls, and whatever a result leaves out is said in plain words
+before the JSON, in the same text, with the call that returns the rest.
+
+- **Lists** (`containers_list`, `images_list`, `volumes_list`, `networks_list`) return a page
+  in a stated order. `limit` and `offset` reach every row; the first lines say
+  `Showing 1–5 of 12 containers. Pass offset=5 for the next page.`
+- **Logs** are read from the end. `container_logs` returns the last 100 lines, oldest first;
+  `offset` counts lines back from the end. A line longer than 2000 characters is split into
+  rows of that length. Only the last 20 MiB of a log is read.
+- **Descriptions** (`container_inspect`, `image_inspect`) are returned whole or not at all.
+  One too long for a result is refused with the size of each top-level member, and `fields`
+  chooses members.
+- **Exec output** cannot be asked for twice. What the output limit leaves out is discarded
+  and the result says `Cut at 4096 of 10000 characters; the rest cannot be read again.`
+  Run a narrower command instead.
+- **Settings** that would allow a longer result or call act as the longest allowed: 40000
+  characters of log page or command output, and 170 seconds of command, pull or build.
+- **Time.** Every call is answered within 200 seconds (the server gives up at 190). A pull
+  or a build that needs longer than 170 seconds cannot finish through this server, and a
+  command that runs longer is killed. When a call gives up, the container service may still
+  have done the work: look with the matching list tool before trying again.
 
 ## Threat model
 
@@ -235,8 +264,11 @@ and writable folders must be the scratch folder's `readonly` and `writable` subf
 checks that progress only grows and that nothing arrives after a call's reply.
 
 The MCP protocol is not a package dependency. **`Sources/ContainerMCPCore/Protocol/MCPServer.swift`,
-`Protocol/Value.swift` and `Tests/ContainerMCPCoreTests/MCPProtocolTests.swift` are copied unchanged
-into every one of the owner's MCP servers** (the test file differs only in its `@testable import`).
+`Protocol/Value.swift`, `Protocol/ToolStandard.swift` and the tests `MCPProtocolTests.swift` and
+`ToolStandardTests.swift` are copied unchanged into every one of the owner's MCP servers** (the test
+files differ only in their `@testable import`). `ToolStandard.swift` holds the limits and the fixed
+wording of every notice that says what a result left out, and the guard `MCPServer.swift` passes every
+result through; a tool bounds its own result, and the guard only catches the one that forgot.
 A change to one is made to every copy in the same piece of work; never let a copy drift. What is
 particular to this server, the protocol writer on its own file descriptor and the progress
 notifications, is in `Sources/ContainerMCPCore/Server/ContainerMCPServer.swift`. The other

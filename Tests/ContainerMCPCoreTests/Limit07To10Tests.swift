@@ -5,37 +5,51 @@ import Testing
 
 private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", digest: "sha256:a")
 
+private func json(_ result: ToolOutput) throws -> [String: Any] {
+    // Notices come first, then a blank line, then the JSON.
+    let text = result.text
+    let start = text.range(of: "\n\n{").map { text.index($0.lowerBound, offsetBy: 2) } ?? text.startIndex
+    return try #require(try JSONSerialization.jsonObject(with: Data(text[start...].utf8)) as? [String: Any])
+}
+
 /// Limit 7: logs, exec, pull, build and resources are bounded by the configuration.
 @Suite struct BoundsTests {
     @Test func logsAreCappedAtTheConfiguredLines() async throws {
         let fixture = try await Fixture(containers: [Fixture.owned("web")])
         defer { fixture.remove() }
         await fixture.backend.set(logData: Data((1...20).map { "l\($0)" }.joined(separator: "\n").utf8))
-        let result = await fixture.call(.containerLogs, ["id": "web", "lines": 1000])
-        let object = try JSONSerialization.jsonObject(with: Data(result.text.utf8)) as? [String: Any]
-        let lines = try #require(object?["lines"] as? [String])
-        #expect(lines == ["l16", "l17", "l18", "l19", "l20"])
-        #expect(object?["truncated"] as? Bool == true)
+        let result = await fixture.call(.containerLogs, ["id": "web", "limit": 1000])
+        // The fixture allows 5 lines a page: the request is moved to it, and the result says so.
+        #expect(result.text.hasPrefix("limit=1000 is outside 1–5; 5 was used.\nShowing 1–5 of 20 lines, counted back from the end of the log. Pass offset=5 for the next page.\n\n{"), "\(result.text)")
+        let object = try json(result)
+        #expect(object["lines"] as? [String] == ["l16", "l17", "l18", "l19", "l20"])
+        #expect(object["truncated"] == nil)
     }
 
     @Test func logsAreCappedAtTheConfiguredBytes() {
         let data = Data((String(repeating: "x", count: 40) + "\n" + String(repeating: "y", count: 40) + "\n").utf8)
-        let tail = LogTail.tail(data, maximumLines: 5, maximumBytes: 64, startsAtBeginning: true)
-        #expect(tail.lines == [String(repeating: "y", count: 40)])
-        #expect(tail.truncated)
-        #expect(tail.lines.reduce(0) { $0 + $1.utf8.count + 1 } <= 64)
+        let rows = LogTail.rows(data, startsAtBeginning: true, width: 2000)
+        let page = LogTail.page(of: rows, offset: 0, limit: 5, maximumBytes: 64)
+        #expect(page == [String(repeating: "y", count: 40)])
+        #expect(page.reduce(0) { $0 + $1.utf8.count + 1 } <= 64)
     }
 
     @Test func partialFirstLineIsDropped() {
-        let tail = LogTail.tail(Data("tial line\nwhole\n".utf8), maximumLines: 5, maximumBytes: 64, startsAtBeginning: false)
-        #expect(tail.lines == ["whole"])
+        let rows = LogTail.rows(Data("tial line\nwhole\n".utf8), startsAtBeginning: false, width: 2000)
+        #expect(rows == ["whole"])
     }
 
-    @Test func execTimeoutAboveTheMaximumIsRefused() async throws {
+    @Test func execTimeoutAboveTheMaximumIsMovedAndSaid() async throws {
         let fixture = try await Fixture(containers: [Fixture.owned("api")])
         defer { fixture.remove() }
-        #expect(await fixture.call(.containerExec, ["id": "api", "command": ["sleep", "100"], "timeout_seconds": 31]).refused(by: .boundsExecTimeout))
-        #expect(await fixture.backend.calls.isEmpty)
+        let result = await fixture.call(.containerExec, ["id": "api", "command": ["sleep", "100"], "timeout_seconds": 31])
+        #expect(result.isError != true, "\(result.text)")
+        #expect(result.text.hasPrefix("timeout_seconds=31 is outside 1–30; 30 was used.\n\n{"), "\(result.text)")
+        guard case .exec(_, let specification) = await fixture.backend.calls.first else {
+            Issue.record("expected exec")
+            return
+        }
+        #expect(specification.timeoutSeconds == 30)
     }
 
     @Test func execGetsTimeoutAndOutputCapWithoutTTYOrStdin() async throws {
@@ -71,13 +85,25 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
         #expect(specification.memoryMiB == 1024)
     }
 
-    @Test func resourcesAboveTheMaximumAreRefused() async throws {
+    @Test func resourcesOutsideTheLimitsAreMovedAndSaid() async throws {
         let fixture = try await Fixture(images: [alpine])
         defer { fixture.remove() }
-        #expect(await fixture.call(.containerRun, ["image": "alpine", "name": "web", "cpus": 5]).refused(by: .resourceCPUs))
-        #expect(await fixture.call(.containerRun, ["image": "alpine", "name": "web", "memory_mib": 4097]).refused(by: .resourceMemory))
-        #expect(await fixture.call(.containerRun, ["image": "alpine", "name": "web", "memory_mib": 100]).refused(by: .resourceMemory))
-        #expect(await fixture.backend.calls.isEmpty)
+        let result = await fixture.call(.containerRun, ["image": "alpine", "name": "web", "cpus": 5, "memory_mib": 100])
+        #expect(result.isError != true, "\(result.text)")
+        #expect(result.text.hasPrefix("cpus=5 is outside 1–4; 4 was used.\nmemory_mib=100 is outside 200–4096; 200 was used.\n\n{"), "\(result.text)")
+        guard case .create(let specification) = await fixture.backend.calls.first else {
+            Issue.record("expected create")
+            return
+        }
+        #expect(specification.cpus == 4)
+        #expect(specification.memoryMiB == 200)
+    }
+
+    @Test func policyStillRefusesResourcesAboveTheMaximum() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.remove() }
+        #expect(refusal { () throws(Refusal) in try fixture.policy.approveResources(cpus: 5, memoryMiB: nil) }?.rule == .resourceCPUs)
+        #expect(refusal { () throws(Refusal) in try fixture.policy.approveResources(cpus: nil, memoryMiB: 4097) }?.rule == .resourceMemory)
     }
 
     @Test func pullStopsAtTheConfiguredTimeout() async throws {
@@ -281,7 +307,7 @@ private let alpine = ImageSummary(reference: "docker.io/library/alpine:latest", 
         let fixture = try await Fixture(containers: [Fixture.owned("api")], images: [alpine])
         defer { fixture.remove() }
         let results = [
-            await fixture.call(.containerRun, ["image": "alpine", "name": "web", "env": ["TOKEN=s3cr3t-a"], "cpus": 99]),
+            await fixture.call(.containerRun, ["image": "alpine", "name": "web", "env": ["TOKEN=s3cr3t-a"], "ports": [["host_port": 22, "container_port": 22]]]),
             await fixture.call(.containerRun, ["image": "alpine", "name": "web", "env": ["9BAD=s3cr3t-b"]]),
             await fixture.call(.containerExec, ["id": "api", "command": ["x"], "env": ["TOKEN=s3cr3t-c", "KEYONLY"]]),
             await fixture.call(.imageBuild, ["context_path": .string(fixture.readOnlyRoot + "/build"), "tag": "demo:1", "build_args": ["1X=s3cr3t-d"]]),

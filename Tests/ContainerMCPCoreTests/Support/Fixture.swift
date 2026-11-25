@@ -21,7 +21,10 @@ struct Fixture {
     init(
         containers: [ContainerSummary] = [], images: [ImageSummary] = [], volumes: [VolumeSummary] = [],
         networks: [NetworkSummary]? = nil, protected: [String] = [], configurationState: ConfigurationState? = nil,
-        ownedImageReferences: [String] = [], pullTimeoutSeconds: Int = 60
+        ownedImageReferences: [String] = [], pullTimeoutSeconds: Int = 60,
+        logs: Configuration.LogLimits = .init(maximumLines: 5, maximumBytes: 64),
+        exec: Configuration.ExecLimits = .init(maximumTimeoutSeconds: 30, maximumOutputBytes: 4096),
+        deadline: Duration = ToolCatalog.callDeadline
     ) async throws {
         let created = NSTemporaryDirectory() + "container-mcp-tests-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: created, withIntermediateDirectories: true)
@@ -54,8 +57,7 @@ struct Fixture {
             hostPorts: .init(minimum: 8000, maximum: 8999),
             registries: ["docker.io", "ghcr.io"],
             resources: .init(defaultCPUs: 2, maximumCPUs: 4, defaultMemoryMiB: 1024, maximumMemoryMiB: 4096),
-            logs: .init(maximumLines: 5, maximumBytes: 64),
-            exec: .init(maximumTimeoutSeconds: 30, maximumOutputBytes: 4096),
+            logs: logs, exec: exec,
             pullTimeoutSeconds: pullTimeoutSeconds, buildTimeoutSeconds: 60,
             protectedContainers: protected)
 
@@ -70,7 +72,7 @@ struct Fixture {
         for reference in ownedImageReferences { await ownedImages.add(reference) }
         dispatcher = ToolDispatcher(
             backend: backend, configurationState: configurationState ?? .loaded(configuration), paths: paths, audit: audit,
-            ownedImages: ownedImages)
+            ownedImages: ownedImages, deadline: deadline)
     }
 
     var policy: Policy { Policy(configuration: configuration, paths: paths) }

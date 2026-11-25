@@ -112,8 +112,10 @@ for tool in tools {
 var calledTools: Set<String> = []
 var progressCounter = 0
 
+/// A sentence about what a result left out comes before its JSON.
 @MainActor func object(_ text: String) -> [String: Any] {
-    (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+    let body = text.firstIndex(of: "{").map { String(text[$0...]) } ?? text
+    return (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]) ?? [:]
 }
 
 /// Calls a tool, prints request and (shortened) response, and checks the expectation.
@@ -214,7 +216,7 @@ await call("container_exec", ["id": .string(name), "command": ["cat", "/src/gree
 await call("container_exec", ["id": .string(name), "command": ["sh", "-c", "echo written > /out/probe.txt && touch /src/blocked"]], note: "writable /out, read-only /src")
 let environment = await call("container_exec", ["id": .string(name), "command": ["env"]])
 await call("container_exec", ["id": .string(name), "command": ["sleep", "30"], "timeout_seconds": 2], note: "killed at the timeout")
-await call("container_logs", ["id": .string(name), "lines": 20])
+await call("container_logs", ["id": .string(name), "limit": 20])
 await call("container_stats", ["id": .string(name)])
 
 print("\n## lifecycle")

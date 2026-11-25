@@ -64,7 +64,8 @@ extension NativeBackend {
         return ExecResult(
             exitCode: timedOut ? nil : exitCode, timedOut: timedOut,
             standardOutput: String(decoding: captured.output, as: UTF8.self),
-            standardError: String(decoding: captured.error, as: UTF8.self), outputTruncated: captured.truncated)
+            standardError: String(decoding: captured.error, as: UTF8.self), outputTruncated: captured.omittedCharacters > 0,
+            omittedCharacters: captured.omittedCharacters)
     }
 
     enum RaceOutcome<T: Sendable>: Sendable {
@@ -90,7 +91,9 @@ extension NativeBackend {
 }
 
 /// Collects stdout and stderr up to a shared byte limit, reading on dispatch threads so
-/// blocking reads never hold a Swift concurrency thread.
+/// blocking reads never hold a Swift concurrency thread. What does not fit is read and
+/// discarded (a full pipe would block the command) and counted, in characters, so that the
+/// result can say how much it left out.
 final class OutputCollector: @unchecked Sendable {
     enum Stream { case output, error }
 
@@ -98,7 +101,9 @@ final class OutputCollector: @unchecked Sendable {
     private let limit: Int
     private var output = Data()
     private var error = Data()
-    private var truncated = false
+    private var omitted = 0
+    private var outputWasCut = false
+    private var errorWasCut = false
 
     init(limit: Int) {
         self.limit = limit
@@ -124,25 +129,50 @@ final class OutputCollector: @unchecked Sendable {
         }
     }
 
-    private func append(_ data: Data, to stream: Stream) {
+    /// Characters are counted by their first byte, so a character split between two reads
+    /// or at the limit is counted once.
+    static func characters(in data: some Collection<UInt8>) -> Int {
+        data.reduce(0) { $1 & 0xC0 == 0x80 ? $0 : $0 + 1 }
+    }
+
+    func append(_ data: Data, to stream: Stream) {
         lock.lock()
         defer { lock.unlock() }
-        let room = limit - output.count - error.count
-        guard room > 0 else {
-            truncated = true
-            return
-        }
+        let room = max(limit - output.count - error.count, 0)
         let kept = data.prefix(room)
-        if kept.count < data.count { truncated = true }
+        if kept.count < data.count {
+            omitted += Self.characters(in: data.dropFirst(kept.count))
+            switch stream {
+            case .output: outputWasCut = true
+            case .error: errorWasCut = true
+            }
+        }
         switch stream {
         case .output: output.append(kept)
         case .error: error.append(kept)
         }
     }
 
-    func result() -> (output: Data, error: Data, truncated: Bool) {
+    /// `data` without a trailing character that the limit cut in two, and how many such
+    /// characters (zero or one) that was.
+    static func wholeCharacters(_ data: Data) -> (data: Data, cut: Int) {
+        var start = data.endIndex
+        var back = 0
+        while start > data.startIndex, back < 4 {
+            start = data.index(before: start)
+            back += 1
+            if data[start] & 0xC0 == 0x80 { continue }
+            let length = data[start] >= 0xF0 ? 4 : data[start] >= 0xE0 ? 3 : data[start] >= 0xC0 ? 2 : 1
+            return length > back ? (Data(data[data.startIndex..<start]), 1) : (data, 0)
+        }
+        return (data, 0)
+    }
+
+    func result() -> (output: Data, error: Data, omittedCharacters: Int) {
         lock.lock()
         defer { lock.unlock() }
-        return (output, error, truncated)
+        let wholeOutput = outputWasCut ? Self.wholeCharacters(output) : (data: output, cut: 0)
+        let wholeError = errorWasCut ? Self.wholeCharacters(error) : (data: error, cut: 0)
+        return (wholeOutput.data, wholeError.data, omitted + wholeOutput.cut + wholeError.cut)
     }
 }

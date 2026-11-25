@@ -32,39 +32,39 @@ public struct Policy: Sendable {
         _ hostPath: String, wantsWritable: Bool, containerApplicationRoot: String?, purpose: String = "mount"
     ) throws(Refusal) -> (resolved: String, readOnly: Bool) {
         guard hostPath.hasPrefix("/") else {
-            throw Refusal(.inputInvalid, "\(purpose) path \(hostPath) is not absolute", allowed: "absolute host paths")
+            throw Refusal(.inputInvalid, "\(purpose) path \(ToolStandard.echo(hostPath)) is not absolute", allowed: "absolute host paths")
         }
         guard let resolved = PathResolution.resolveExisting(hostPath) else {
-            throw Refusal(.inputInvalid, "\(purpose) path \(hostPath) does not exist", allowed: "existing folders")
+            throw Refusal(.inputInvalid, "\(purpose) path \(ToolStandard.echo(hostPath)) does not exist", allowed: "existing folders")
         }
         let protected = paths.protectedPaths(containerApplicationRoot: containerApplicationRoot)
-        let roots = configuration.mountRoots.map(\.path).joined(separator: ", ")
+        let roots = Refusal.list(configuration.mountRoots.map(\.path))
         if resolved == "/" || resolved == PathResolution.resolveAllowingMissing(paths.home) {
             throw Refusal(
-                .mountProtected, "\(hostPath) resolves to \(resolved), which may never be used",
+                .mountProtected, "\(ToolStandard.echo(hostPath)) resolves to \(ToolStandard.echo(resolved)), which may never be used",
                 allowed: "folders inside the mount roots (\(roots)) that are not protected")
         }
         for protectedPath in protected {
             if PathResolution.isSameOrInside(resolved, protectedPath) || PathResolution.isSameOrInside(protectedPath, resolved) {
                 throw Refusal(
-                    .mountProtected, "\(hostPath) resolves to \(resolved), which is or contains the protected path \(protectedPath)",
+                    .mountProtected, "\(ToolStandard.echo(hostPath)) resolves to \(ToolStandard.echo(resolved)), which is or contains the protected path \(ToolStandard.echo(protectedPath))",
                     allowed: "folders inside the mount roots (\(roots)) that do not overlap protected paths")
             }
         }
         let matchingRoots = configuration.mountRoots.filter { PathResolution.isSameOrInside(resolved, $0.resolvedPath) }
         guard !matchingRoots.isEmpty else {
             throw Refusal(
-                .mountOutsideRoots, "\(hostPath) resolves to \(resolved), outside every mount root",
+                .mountOutsideRoots, "\(ToolStandard.echo(hostPath)) resolves to \(ToolStandard.echo(resolved)), outside every mount root",
                 allowed: roots.isEmpty ? "nothing: the configuration lists no mount roots" : "paths inside \(roots)")
         }
         if wantsWritable {
             guard matchingRoots.contains(where: \.writable) else {
                 let writableRoots = configuration.mountRoots.filter(\.writable).map(\.path)
                 throw Refusal(
-                    .mountWritableNotAllowed, "\(resolved) is only inside read-only mount roots",
+                    .mountWritableNotAllowed, "\(ToolStandard.echo(resolved)) is only inside read-only mount roots",
                     allowed: writableRoots.isEmpty
                         ? "read-only mounts: no mount root is marked writable"
-                        : "writable mounts inside \(writableRoots.joined(separator: ", ")), or a read-only mount here")
+                        : "writable mounts inside \(Refusal.list(writableRoots)), or a read-only mount here")
             }
             return (resolved, false)
         }
@@ -98,14 +98,14 @@ public struct Policy: Sendable {
     static func approveContainerPath(_ path: String, field: String) throws(Refusal) {
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
         guard path.hasPrefix("/"), path != "/", !components.contains(".."), !path.contains("\0") else {
-            throw Refusal(.inputInvalid, "\(field) \(path) is not an absolute container path", allowed: "absolute paths such as /data, not / and without ..")
+            throw Refusal(.inputInvalid, "\(field) \(ToolStandard.echo(path)) is not an absolute container path", allowed: "absolute paths such as /data, not / and without ..")
         }
     }
 
     static func approveUser(_ user: String?) throws(Refusal) {
         guard let user else { return }
         guard user.range(of: #"^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)?$"#, options: .regularExpression) != nil else {
-            throw Refusal(.inputInvalid, "user \(user) is not valid", allowed: "name, uid, name:group or uid:gid")
+            throw Refusal(.inputInvalid, "user \(ToolStandard.echo(user)) is not valid", allowed: "name, uid, name:group or uid:gid")
         }
     }
 
@@ -126,13 +126,13 @@ public struct Policy: Sendable {
     /// Checks that pulling `reference` would only contact a listed registry.
     public func approveRegistry(for reference: String, defaultDomain: String) throws(Refusal) {
         guard ImageReference.isWellFormed(reference) else {
-            throw Refusal(.inputInvalid, "image reference \(reference) is not well formed", allowed: "references such as alpine:3.20 or ghcr.io/owner/name:tag")
+            throw Refusal(.inputInvalid, "image reference \(ToolStandard.echo(reference)) is not well formed", allowed: "references such as alpine:3.20 or ghcr.io/owner/name:tag")
         }
         let domain = ImageReference.domain(of: reference, defaultDomain: defaultDomain)
         guard ImageReference.isAllowed(domain: domain, registries: configuration.registries) else {
             throw Refusal(
-                .imageRegistry, "\(reference) would be fetched from \(domain), which is not listed",
-                allowed: configuration.registries.isEmpty ? "no registries: the configuration lists none" : "images from \(configuration.registries.joined(separator: ", "))")
+                .imageRegistry, "\(ToolStandard.echo(reference)) would be fetched from \(ToolStandard.echo(domain)), which is not listed",
+                allowed: configuration.registries.isEmpty ? "no registries: the configuration lists none" : "images from \(Refusal.list(configuration.registries))")
         }
     }
 
@@ -152,8 +152,8 @@ public struct Policy: Sendable {
         guard cpus >= 1, cpus <= limits.maximumCPUs else {
             throw Refusal(.resourceCPUs, "\(cpus) CPUs requested", allowed: "1 to \(limits.maximumCPUs) CPUs")
         }
-        guard memory >= 200, memory <= limits.maximumMemoryMiB else {
-            throw Refusal(.resourceMemory, "\(memory) MiB requested", allowed: "200 to \(limits.maximumMemoryMiB) MiB")
+        guard memory >= ToolCatalog.smallestMemoryMiB, memory <= limits.maximumMemoryMiB else {
+            throw Refusal(.resourceMemory, "\(memory) MiB requested", allowed: "\(ToolCatalog.smallestMemoryMiB) to \(limits.maximumMemoryMiB) MiB")
         }
         return (cpus, memory)
     }
@@ -188,10 +188,10 @@ public struct Policy: Sendable {
 
     public func approveRun(_ input: RunInput, context: RunContext) throws(Refusal) -> RunSpecification {
         guard ContainerName.isValid(input.name) else {
-            throw Refusal(.inputInvalid, "container name \(input.name) is not valid", allowed: "2 to 63 characters: letters, digits, _ . - , starting with a letter or digit")
+            throw Refusal(.inputInvalid, "container name \(ToolStandard.echo(input.name)) is not valid", allowed: "2 to 63 characters: letters, digits, _ . - , starting with a letter or digit")
         }
         guard !context.existingContainerIDs.contains(input.name) else {
-            throw Refusal(.inputInvalid, "a container named \(input.name) already exists", allowed: "a name no container uses")
+            throw Refusal(.inputInvalid, "a container named \(ToolStandard.echo(input.name)) already exists", allowed: "a name no container uses")
         }
         try approveImageUse(normalizedReference: context.normalizedImage, localImages: context.localImages, defaultDomain: context.defaultRegistryDomain)
         try approveImageUse(normalizedReference: context.infrastructure.initImage, localImages: context.localImages, defaultDomain: context.defaultRegistryDomain)
@@ -221,10 +221,10 @@ public struct Policy: Sendable {
                 throw Refusal(.inputInvalid, "ports[\(index)].container_port \(port.containerPort) is not a port", allowed: "1 to 65535")
             }
             guard ["tcp", "udp"].contains(port.protocolName) else {
-                throw Refusal(.inputInvalid, "ports[\(index)].protocol \(port.protocolName) is not supported", allowed: "tcp or udp")
+                throw Refusal(.inputInvalid, "ports[\(index)].protocol \(ToolStandard.echo(port.protocolName)) is not supported", allowed: "tcp or udp")
             }
             guard seenPorts.insert("\(port.hostPort)/\(port.protocolName)").inserted else {
-                throw Refusal(.portDuplicate, "host port \(port.hostPort)/\(port.protocolName) is listed twice", allowed: "each host port once per protocol")
+                throw Refusal(.portDuplicate, "host port \(port.hostPort)/\(ToolStandard.echo(port.protocolName)) is listed twice", allowed: "each host port once per protocol")
             }
             ports.append(.init(hostAddress: Self.loopbackAddress, hostPort: port.hostPort, containerPort: port.containerPort, protocolName: port.protocolName))
         }
@@ -235,7 +235,7 @@ public struct Policy: Sendable {
             try Self.approveContainerPath(mount.containerPath, field: "mounts[\(index)].container_path")
             let approved = try approveHostPath(mount.hostPath, wantsWritable: mount.writable, containerApplicationRoot: context.containerApplicationRoot)
             guard destinations.insert(mount.containerPath).inserted else {
-                throw Refusal(.inputInvalid, "container path \(mount.containerPath) is used twice", allowed: "one mount per container path")
+                throw Refusal(.inputInvalid, "container path \(ToolStandard.echo(mount.containerPath)) is used twice", allowed: "one mount per container path")
             }
             bindMounts.append(.init(source: approved.resolved, destination: mount.containerPath, readOnly: approved.readOnly))
         }
@@ -244,23 +244,23 @@ public struct Policy: Sendable {
         for (index, volume) in input.volumes.enumerated() {
             try Self.approveContainerPath(volume.containerPath, field: "volumes[\(index)].container_path")
             guard let existing = context.volumes.first(where: { $0.name == volume.volume }) else {
-                throw Refusal(.inputInvalid, "volume \(volume.volume) does not exist", allowed: "volumes created with volume_create")
+                throw Refusal(.inputInvalid, "volume \(ToolStandard.echo(volume.volume)) does not exist", allowed: "volumes created with volume_create")
             }
             guard Self.isOwned(existing.labels) else {
-                throw Refusal(.mountVolumeNotOwned, "volume \(volume.volume) was not created by this server", allowed: "volumes created with volume_create")
+                throw Refusal(.mountVolumeNotOwned, "volume \(ToolStandard.echo(volume.volume)) was not created by this server", allowed: "volumes created with volume_create")
             }
             guard destinations.insert(volume.containerPath).inserted else {
-                throw Refusal(.inputInvalid, "container path \(volume.containerPath) is used twice", allowed: "one mount per container path")
+                throw Refusal(.inputInvalid, "container path \(ToolStandard.echo(volume.containerPath)) is used twice", allowed: "one mount per container path")
             }
             volumeMounts.append(.init(volume: volume.volume, destination: volume.containerPath, readOnly: volume.readOnly))
         }
 
         if let network = input.network {
             guard let existing = context.networks.first(where: { $0.name == network }) else {
-                throw Refusal(.inputInvalid, "network \(network) does not exist", allowed: "the default network or one created with network_create")
+                throw Refusal(.inputInvalid, "network \(ToolStandard.echo(network)) does not exist", allowed: "the default network or one created with network_create")
             }
             guard existing.builtin || Self.isOwned(existing.labels) else {
-                throw Refusal(.networkNotAllowed, "network \(network) was not created by this server", allowed: "the default network or one created with network_create")
+                throw Refusal(.networkNotAllowed, "network \(ToolStandard.echo(network)) was not created by this server", allowed: "the default network or one created with network_create")
             }
         }
 
@@ -293,12 +293,12 @@ public struct Policy: Sendable {
     ) throws(Refusal) {
         if protectedContainers.contains(container.id) {
             throw Refusal(
-                .ownershipProtected, "\(container.id) is listed as protected in the extension settings",
+                .ownershipProtected, "\(ToolStandard.echo(container.id)) is listed as protected in the extension settings",
                 allowed: "containers that are not listed as protected")
         }
         if action != .read && isInfrastructure(container.labels) {
             throw Refusal(
-                .ownershipInfrastructure, "\(container.id) belongs to the container tool itself",
+                .ownershipInfrastructure, "\(ToolStandard.echo(container.id)) belongs to the container tool itself",
                 allowed: "containers that are not the container tool's own")
         }
     }
@@ -310,7 +310,7 @@ public struct Policy: Sendable {
     public func approveExec(_ input: ExecInput, on container: ContainerSummary) throws(Refusal) -> ExecSpecification {
         try approveLifecycle(.exec, on: container)
         guard container.isRunning else {
-            throw Refusal(.stateNotRunning, "\(container.id) is \(container.status)", allowed: "exec into running containers")
+            throw Refusal(.stateNotRunning, "\(ToolStandard.echo(container.id)) is \(container.status)", allowed: "exec into running containers")
         }
         try Self.approveArguments(input.command, field: "command", allowEmpty: false)
         let environment = try Self.approveEnvironment(input.environment)
@@ -318,89 +318,80 @@ public struct Policy: Sendable {
             try Self.approveContainerPath(workingDirectory, field: "workdir")
         }
         try Self.approveUser(input.user)
-        let maximum = configuration.exec.maximumTimeoutSeconds
+        let limits = configuration.effectiveExecLimits
+        let maximum = limits.maximumTimeoutSeconds
         let timeout = input.timeoutSeconds ?? maximum
         guard timeout >= 1, timeout <= maximum else {
             throw Refusal(.boundsExecTimeout, "timeout_seconds \(timeout) requested", allowed: "1 to \(maximum) seconds")
         }
         return ExecSpecification(
             command: input.command, environment: environment, workingDirectory: input.workingDirectory, user: input.user,
-            timeoutSeconds: timeout, maximumOutputBytes: configuration.exec.maximumOutputBytes)
+            timeoutSeconds: timeout, maximumOutputBytes: limits.maximumOutputBytes)
     }
 
     public func approveContainerDelete(_ container: ContainerSummary) throws(Refusal) {
         try approveLifecycle(.delete, on: container)
         guard container.status == "stopped" else {
-            throw Refusal(.stateRunning, "\(container.id) is \(container.status)", allowed: "deleting stopped containers; stop it first")
+            throw Refusal(.stateRunning, "\(ToolStandard.echo(container.id)) is \(container.status)", allowed: "deleting stopped containers; stop it first")
         }
     }
 
     public func approveStopTimeout(_ seconds: Int?) throws(Refusal) -> Int {
-        let timeout = seconds ?? 5
-        guard (0...300).contains(timeout) else {
-            throw Refusal(.inputInvalid, "timeout_seconds \(timeout) requested", allowed: "0 to 300 seconds")
+        let timeout = seconds ?? ToolCatalog.defaultStopTimeoutSeconds
+        let range = ToolCatalog.stopTimeoutRange
+        guard range.contains(timeout) else {
+            throw Refusal(.inputInvalid, "timeout_seconds \(timeout) requested", allowed: "\(range.lowerBound) to \(range.upperBound) seconds")
         }
         return timeout
-    }
-
-    // MARK: Logs
-
-    /// The number of lines and bytes a log call may return.
-    public func approveLogs(lines: Int?) throws(Refusal) -> (lines: Int, bytes: Int) {
-        let limits = configuration.logs
-        let requested = lines ?? limits.maximumLines
-        guard requested >= 1 else {
-            throw Refusal(.inputInvalid, "lines \(requested) requested", allowed: "1 to \(limits.maximumLines) lines")
-        }
-        return (min(requested, limits.maximumLines), limits.maximumBytes)
     }
 
     // MARK: Images, volumes and networks
 
     public func approveImageDelete(normalizedReference: String, ownedImages: Set<String>, infrastructure: InfrastructureImages) throws(Refusal) {
         guard normalizedReference != infrastructure.initImage, normalizedReference != infrastructure.builderImage else {
-            throw Refusal(.ownershipImageNotOwned, "\(normalizedReference) is an image the container service itself needs", allowed: "images this server pulled or built")
+            throw Refusal(.ownershipImageNotOwned, "\(ToolStandard.echo(normalizedReference)) is an image the container service itself needs", allowed: "images this server pulled or built")
         }
         guard ownedImages.contains(normalizedReference) else {
-            throw Refusal(.ownershipImageNotOwned, "\(normalizedReference) was not pulled or built by this server", allowed: "images this server pulled or built")
+            throw Refusal(.ownershipImageNotOwned, "\(ToolStandard.echo(normalizedReference)) was not pulled or built by this server", allowed: "images this server pulled or built")
         }
     }
 
     public func approveVolumeCreate(name: String, sizeMiB: Int?, existing: [VolumeSummary]) throws(Refusal) -> UInt64? {
         guard ContainerName.isValidVolume(name) else {
-            throw Refusal(.inputInvalid, "volume name \(name) is not valid", allowed: "letters, digits, _ . - , starting with a letter or digit")
+            throw Refusal(.inputInvalid, "volume name \(ToolStandard.echo(name)) is not valid", allowed: "letters, digits, _ . - , starting with a letter or digit")
         }
         guard !existing.contains(where: { $0.name == name }) else {
-            throw Refusal(.inputInvalid, "a volume named \(name) already exists", allowed: "a name no volume uses")
+            throw Refusal(.inputInvalid, "a volume named \(ToolStandard.echo(name)) already exists", allowed: "a name no volume uses")
         }
         guard let sizeMiB else { return nil }
-        guard (1...1_048_576).contains(sizeMiB) else {
-            throw Refusal(.inputInvalid, "size_mib \(sizeMiB) requested", allowed: "1 to 1048576 MiB")
+        let range = ToolCatalog.volumeSizeRange
+        guard range.contains(sizeMiB) else {
+            throw Refusal(.inputInvalid, "size_mib \(sizeMiB) requested", allowed: "\(range.lowerBound) to \(range.upperBound) MiB")
         }
         return UInt64(sizeMiB) * 1_048_576
     }
 
     public func approveVolumeDelete(_ volume: VolumeSummary) throws(Refusal) {
         guard Self.isOwned(volume.labels) else {
-            throw Refusal(.ownershipUnlabelled, "volume \(volume.name) was not created by this server", allowed: "deleting volumes this server created")
+            throw Refusal(.ownershipUnlabelled, "volume \(ToolStandard.echo(volume.name)) was not created by this server", allowed: "deleting volumes this server created")
         }
     }
 
     public func approveNetworkCreate(name: String, subnet: String?, existing: [NetworkSummary]) throws(Refusal) {
         guard ContainerName.isValidNetwork(name) else {
-            throw Refusal(.inputInvalid, "network name \(name) is not valid", allowed: "lowercase letters, digits, . _ - , up to 63 characters")
+            throw Refusal(.inputInvalid, "network name \(ToolStandard.echo(name)) is not valid", allowed: "lowercase letters, digits, . _ - , up to 63 characters")
         }
         guard !existing.contains(where: { $0.name == name }) else {
-            throw Refusal(.inputInvalid, "a network named \(name) already exists", allowed: "a name no network uses")
+            throw Refusal(.inputInvalid, "a network named \(ToolStandard.echo(name)) already exists", allowed: "a name no network uses")
         }
         if let subnet, subnet.range(of: #"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$"#, options: .regularExpression) == nil {
-            throw Refusal(.inputInvalid, "subnet \(subnet) is not an IPv4 CIDR", allowed: "CIDR such as 192.168.100.0/24")
+            throw Refusal(.inputInvalid, "subnet \(ToolStandard.echo(subnet)) is not an IPv4 CIDR", allowed: "CIDR such as 192.168.100.0/24")
         }
     }
 
     public func approveNetworkDelete(_ network: NetworkSummary) throws(Refusal) {
         guard !network.builtin, Self.isOwned(network.labels) else {
-            throw Refusal(.ownershipUnlabelled, "network \(network.name) was not created by this server", allowed: "deleting networks this server created")
+            throw Refusal(.ownershipUnlabelled, "network \(ToolStandard.echo(network.name)) was not created by this server", allowed: "deleting networks this server created")
         }
     }
 
@@ -438,21 +429,21 @@ public struct Policy: Sendable {
         }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: contextDirectory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw Refusal(.buildContext, "\(input.contextPath) is not a folder", allowed: "a folder inside the mount roots")
+            throw Refusal(.buildContext, "\(ToolStandard.echo(input.contextPath)) is not a folder", allowed: "a folder inside the mount roots")
         }
 
         let relative = input.dockerfile ?? "Dockerfile"
         guard !relative.hasPrefix("/") else {
-            throw Refusal(.buildContext, "dockerfile \(relative) is absolute", allowed: "a path relative to the build context")
+            throw Refusal(.buildContext, "dockerfile \(ToolStandard.echo(relative)) is absolute", allowed: "a path relative to the build context")
         }
         guard let dockerfile = PathResolution.resolveExisting(contextDirectory + "/" + relative) else {
-            throw Refusal(.buildContext, "dockerfile \(relative) does not exist in the context", allowed: "a Dockerfile inside the build context")
+            throw Refusal(.buildContext, "dockerfile \(ToolStandard.echo(relative)) does not exist in the context", allowed: "a Dockerfile inside the build context")
         }
         guard PathResolution.isSameOrInside(dockerfile, contextDirectory), dockerfile != contextDirectory else {
-            throw Refusal(.buildContext, "dockerfile \(relative) resolves outside the build context", allowed: "a Dockerfile inside the build context")
+            throw Refusal(.buildContext, "dockerfile \(ToolStandard.echo(relative)) resolves outside the build context", allowed: "a Dockerfile inside the build context")
         }
         guard let contents = FileManager.default.contents(atPath: dockerfile) else {
-            throw Refusal(.buildContext, "dockerfile \(relative) cannot be read", allowed: "a readable file")
+            throw Refusal(.buildContext, "dockerfile \(ToolStandard.echo(relative)) cannot be read", allowed: "a readable file")
         }
         guard contents.count < Self.maximumDockerfileBytes else {
             throw Refusal(.inputInvalid, "the Dockerfile is \(contents.count) bytes", allowed: "Dockerfiles under 16 KiB (a limit of container 1.7.1)")
@@ -466,7 +457,7 @@ public struct Policy: Sendable {
             scan = try DockerfileScanner.scan(text)
         } catch {
             guard case .variableReference(let reference) = error else { preconditionFailure("unhandled scan problem") }
-            throw Refusal(.imageRegistry, "the Dockerfile refers to the image \(reference) through a variable, so its registry cannot be checked", allowed: "literal image references from \(configuration.registries.joined(separator: ", "))")
+            throw Refusal(.imageRegistry, "the Dockerfile refers to the image \(ToolStandard.echo(reference)) through a variable, so its registry cannot be checked", allowed: "literal image references from \(Refusal.list(configuration.registries))")
         }
         for image in scan.externalImages {
             try approveRegistry(for: image, defaultDomain: context.defaultRegistryDomain)
@@ -475,14 +466,14 @@ public struct Policy: Sendable {
         try approveImageUse(normalizedReference: context.infrastructure.initImage, localImages: context.localImages, defaultDomain: context.defaultRegistryDomain)
 
         guard ImageReference.isWellFormed(input.tag) else {
-            throw Refusal(.inputInvalid, "tag \(input.tag) is not a valid image reference", allowed: "references such as demo:1")
+            throw Refusal(.inputInvalid, "tag \(ToolStandard.echo(input.tag)) is not a valid image reference", allowed: "references such as demo:1")
         }
         if context.localImages.contains(context.normalizedTag) && !context.ownedImages.contains(context.normalizedTag) {
-            throw Refusal(.ownershipImageTagTaken, "\(context.normalizedTag) already names an image this server did not create", allowed: "a new tag, or a tag of an image this server built or pulled")
+            throw Refusal(.ownershipImageTagTaken, "\(ToolStandard.echo(context.normalizedTag)) already names an image this server did not create", allowed: "a new tag, or a tag of an image this server built or pulled")
         }
         let buildArguments = try Self.approveEnvironment(input.buildArguments, field: "build_args")
         if let target = input.target, target.range(of: #"^[A-Za-z0-9][A-Za-z0-9_.-]*$"#, options: .regularExpression) == nil {
-            throw Refusal(.inputInvalid, "target \(target) is not a stage name", allowed: "a stage name from the Dockerfile")
+            throw Refusal(.inputInvalid, "target \(ToolStandard.echo(target)) is not a stage name", allowed: "a stage name from the Dockerfile")
         }
         return BuildSpecification(
             contextDirectory: contextDirectory, dockerfile: dockerfile, dockerfileContents: contents, tag: context.normalizedTag,
