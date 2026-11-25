@@ -42,6 +42,16 @@ make plugin-zip    # dist/container-mcp-skills.zip, the "Apple container skills"
    Claude Code with `claude plugin marketplace add .` and
    `claude plugin install container-mcp@container-mcp`.
 
+`make mcpb` signs the server ad hoc. To sign it with a certificate instead, pass the
+certificate's 40-character hash from `security find-identity -v -p codesigning`:
+
+```bash
+MCPB_SIGN_IDENTITY="<identity hash>" make mcpb
+```
+
+Pass the hash, not the certificate's name, which is yours. Never publish a bundle signed
+with a personal certificate.
+
 The binary is also at `.build/release/container-mcp` after `swift build -c release`. It
 speaks MCP over stdio, and its diagnostics go to stderr.
 
