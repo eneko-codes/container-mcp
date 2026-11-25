@@ -9,6 +9,10 @@ mcpb:
 	mkdir -p extension/server dist
 	cp .build/release/container-mcp extension/server/container-mcp
 	chmod +x extension/server/container-mcp
+	# The linker's signature carries no designated requirement. A fixed identifier stands
+	# in for the bundle identifier this binary has no Info.plist for; MCPB_SIGN_IDENTITY
+	# picks a real identity, and ad hoc is the default.
+	codesign --force --identifier codes.eneko.container-mcp --sign "$${MCPB_SIGN_IDENTITY:--}" extension/server/container-mcp
 	rm -f dist/container-mcp.mcpb
 	cd extension && zip -qrX ../dist/container-mcp.mcpb manifest.json server
 	unzip -Z dist/container-mcp.mcpb server/container-mcp | awk 'NR==1 && $$1 !~ /x/ { print "executable bit lost"; exit 1 }'
