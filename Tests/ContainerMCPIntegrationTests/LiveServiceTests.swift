@@ -69,8 +69,10 @@ struct LiveServiceTests {
         return (result.text, result.isError == true)
     }
 
+    /// The JSON of a result. A sentence about what the result left out comes before it.
     func json(_ text: String) -> [String: Any] {
-        (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+        let body = text.firstIndex(of: "{").map { String(text[$0...]) } ?? text
+        return (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]) ?? [:]
     }
 
     /// Removes whatever this run created, straight through the backend, whatever state the test left.
@@ -179,13 +181,13 @@ struct LiveServiceTests {
         let slow = await call(harness, .containerExec, ["id": .string(name), "command": ["sleep", "60"], "timeout_seconds": 2])
         #expect(json(slow.text)["timedOut"] as? Bool == true, "\(slow.text)")
         let noisy = await call(harness, .containerExec, ["id": .string(name), "command": ["sh", "-c", "yes | head -c 100000"]])
-        #expect(json(noisy.text)["outputTruncated"] as? Bool == true, "\(noisy.text)")
+        #expect(noisy.text.contains("Cut at 4096 of 100000 characters; the rest cannot be read again."), "\(noisy.text.prefix(200))")
         #expect((json(noisy.text)["standardOutput"] as? String ?? "").utf8.count <= 4096)
 
         // Logs and stats.
-        let logs = await call(harness, .containerLogs, ["id": .string(name), "lines": 10])
+        let logs = await call(harness, .containerLogs, ["id": .string(name), "limit": 10])
         #expect(!logs.error, "\(logs.text)")
-        let boot = await call(harness, .containerLogs, ["id": .string(name), "boot": true, "lines": 1000])
+        let boot = await call(harness, .containerLogs, ["id": .string(name), "boot": true, "limit": 1000])
         #expect((json(boot.text)["lines"] as? [String] ?? []).count <= 50)
         let stats = await call(harness, .containerStats, ["id": .string(name)])
         #expect(!stats.error, "\(stats.text)")

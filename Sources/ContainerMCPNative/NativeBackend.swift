@@ -72,9 +72,9 @@ public struct NativeBackend: ContainerBackend {
         guard handles.indices.contains(index) else { return Data() }
         let handle = handles[index]
         defer { try? handle.close() }
-        // Read at most the last 20 MiB; the dispatcher keeps far less.
+        // Only the end is read; the dispatcher treats a result of exactly this size as cut at its start.
         let size = try handle.seekToEnd()
-        let start = size > 20_971_520 ? size - 20_971_520 : 0
+        let start = size > UInt64(LogTail.readBytes) ? size - UInt64(LogTail.readBytes) : 0
         try handle.seek(toOffset: start)
         return try handle.readToEnd() ?? Data()
     }

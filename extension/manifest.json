@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "container-mcp",
   "display_name": "Apple container",
-  "version": "0.2.1",
+  "version": "1.0.0",
   "description": "Manage the Linux containers of Apple's container tool on this Mac under a strict policy",
-  "long_description": "A local MCP server written in Swift that lets Claude list, run, start, stop, exec into, build and delete the Linux containers that Apple's container tool runs on this Mac.\n\nEvery call passes one policy: host folders only inside the folders you choose (read-only unless you allow writing), published ports on 127.0.0.1 only, images only from the registries you list, CPU, memory and time limits, an audit log of every call, and a list of containers Claude may never touch. Write tools stay off until you turn on Allow write tools.\n\nNeeds container 1.7.1 installed and its service running. Not affiliated with or endorsed by Apple Inc.",
+  "long_description": "A local MCP server written in Swift that lets Claude list, run, start, stop, exec into, build and delete the Linux containers that Apple's container tool runs on this Mac.\n\nEvery call passes one policy: host folders only inside the folders you choose (read-only unless you allow writing), published ports on 127.0.0.1 only, images only from the registries you list, CPU, memory and time limits, an audit log of every call, and a list of containers Claude may never touch. Write tools stay off until you turn on Allow write tools.\n\nLists come in pages, and a result that leaves something out says so in plain words before the JSON, with the offset to pass for the rest. Logs are read from the end, earlier lines with offset. A call is answered within 200 seconds, so a pull, a build or a command that needs longer cannot finish.\n\nNeeds container 1.7.1 installed and its service running. Not affiliated with or endorsed by Apple Inc.",
   "author": {
     "name": "eneko-codes",
     "url": "https://github.com/eneko-codes"
@@ -248,7 +248,7 @@
     "log_max_lines": {
       "type": "number",
       "title": "Maximum log lines",
-      "description": "The most lines one log call returns.",
+      "description": "The most lines one log page returns; earlier lines are read with offset. Whatever is set, at most 40000 apply.",
       "required": false,
       "default": 500,
       "min": 1,
@@ -257,7 +257,7 @@
     "log_max_bytes": {
       "type": "number",
       "title": "Maximum log bytes",
-      "description": "The most bytes one log call returns.",
+      "description": "The most bytes of log text one log page returns. Whatever is set, at most 40000 apply.",
       "required": false,
       "default": 65536,
       "min": 1,
@@ -266,7 +266,7 @@
     "exec_timeout_seconds": {
       "type": "number",
       "title": "Command timeout (seconds)",
-      "description": "A command run in a container is killed after this.",
+      "description": "A command run in a container is killed after this and returns the output it had written. Whatever is set, at most 170 apply, because every call is answered within 200 seconds.",
       "required": false,
       "default": 60,
       "min": 1,
@@ -275,7 +275,7 @@
     "exec_max_output_bytes": {
       "type": "number",
       "title": "Command output limit (bytes)",
-      "description": "The most output one command returns.",
+      "description": "The most output one command returns; the rest is discarded, and the result says how much. Whatever is set, at most 40000 apply.",
       "required": false,
       "default": 65536,
       "min": 1,
@@ -284,7 +284,7 @@
     "pull_timeout_seconds": {
       "type": "number",
       "title": "Image download timeout (seconds)",
-      "description": "A pull is abandoned after this.",
+      "description": "A pull is abandoned after this. Whatever is set, at most 170 apply, so an image that needs longer cannot be pulled here.",
       "required": false,
       "default": 600,
       "min": 1,
@@ -293,7 +293,7 @@
     "build_timeout_seconds": {
       "type": "number",
       "title": "Image build timeout (seconds)",
-      "description": "A build is abandoned after this.",
+      "description": "A build is abandoned after this. Whatever is set, at most 170 apply, so a build that needs longer cannot finish here.",
       "required": false,
       "default": 1800,
       "min": 1,

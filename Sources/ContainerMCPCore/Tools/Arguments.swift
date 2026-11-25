@@ -1,13 +1,20 @@
 /// Strict reading of tool arguments: unknown fields and wrong types are refused before any
 /// policy rule runs, whatever the client did with the schema.
-struct Arguments {
+///
+/// A class, so that reading a quantity can also record that it was moved into its range
+/// without every reader being `mutating`. One instance serves one call; the tool puts
+/// `notices` before its data.
+final class Arguments {
     private let values: [String: Value]
     private let place: String
+
+    /// One sentence for each quantity that was moved into its range, in the order read.
+    private(set) var notices: [String] = []
 
     init(_ values: [String: Value]?, allowed: Set<String>, place: String = "arguments") throws(Refusal) {
         let values = values ?? [:]
         if let unknown = values.keys.sorted().first(where: { !allowed.contains($0) }) {
-            throw Refusal(.inputInvalid, "unknown field \"\(unknown)\" in \(place)", allowed: "only the fields in the tool's input schema: \(allowed.sorted().joined(separator: ", "))")
+            throw Refusal(.inputInvalid, "unknown field \"\(ToolStandard.echo(unknown))\" in \(place)", allowed: "only the fields in the tool's input schema: \(allowed.sorted().joined(separator: ", "))")
         }
         self.values = values
         self.place = place
@@ -33,6 +40,32 @@ struct Arguments {
         // `intValue` also takes a whole number sent as 2.0, which JSON does not tell apart from 2.
         guard let number = value.intValue else { throw invalid(key, "an integer") }
         return number
+    }
+
+    /// Whether the caller gave `key` (a null counts as not given).
+    func wasGiven(_ key: String) -> Bool {
+        guard let value = values[key] else { return false }
+        return !value.isNull
+    }
+
+    /// A quantity: a count, a size, a time. Outside its range it is moved to the nearest
+    /// allowed value and `notices` says which value was used; nothing is refused for being
+    /// too large or too small. `nil` when the argument was not given.
+    func optionalQuantity(_ key: String, in range: ClosedRange<Int>) throws(Refusal) -> Int? {
+        guard let asked = try integer(key) else { return nil }
+        return ToolStandard.clamp(asked, to: range, argument: key, notices: &notices)
+    }
+
+    func quantity(_ key: String, default fallback: Int, in range: ClosedRange<Int>) throws(Refusal) -> Int {
+        try optionalQuantity(key, in: range) ?? fallback
+    }
+
+    /// The `limit` and `offset` of a listing, read the same way by every tool that pages.
+    func page(defaultLimit: Int, limits: ClosedRange<Int>) throws(Refusal) -> (limit: Int, offset: Int) {
+        (
+            try quantity("limit", default: defaultLimit, in: limits),
+            try quantity("offset", default: 0, in: ToolCatalog.offsetRange)
+        )
     }
 
     func boolean(_ key: String, default fallback: Bool) throws(Refusal) -> Bool {

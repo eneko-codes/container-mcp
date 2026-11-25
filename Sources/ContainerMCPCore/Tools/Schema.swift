@@ -22,10 +22,12 @@ enum Schema {
         .object(["type": "string", "description": .string(description), "enum": .array(values.map { .string($0) })])
     }
 
-    static func integer(_ description: String, minimum: Int? = nil, maximum: Int? = nil) -> Value {
+    /// A `default` is advertised only where leaving the argument out really means that value.
+    static func integer(_ description: String, minimum: Int? = nil, maximum: Int? = nil, default fallback: Int? = nil) -> Value {
         var schema: [String: Value] = ["type": "integer", "description": .string(description)]
         if let minimum { schema["minimum"] = .int(minimum) }
         if let maximum { schema["maximum"] = .int(maximum) }
+        if let fallback { schema["default"] = .int(fallback) }
         return .object(schema)
     }
 

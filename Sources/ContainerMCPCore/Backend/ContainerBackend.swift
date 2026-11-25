@@ -333,12 +333,18 @@ public struct ExecResult: Sendable, Codable, Equatable {
     public var standardOutput: String
     public var standardError: String
     public var outputTruncated: Bool
-    public init(exitCode: Int32?, timedOut: Bool, standardOutput: String, standardError: String, outputTruncated: Bool) {
+    /// How many characters the output limit discarded, which cannot be read again.
+    public var omittedCharacters: Int
+    public init(
+        exitCode: Int32?, timedOut: Bool, standardOutput: String, standardError: String, outputTruncated: Bool,
+        omittedCharacters: Int = 0
+    ) {
         self.exitCode = exitCode
         self.timedOut = timedOut
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.outputTruncated = outputTruncated
+        self.omittedCharacters = omittedCharacters
     }
 }
 

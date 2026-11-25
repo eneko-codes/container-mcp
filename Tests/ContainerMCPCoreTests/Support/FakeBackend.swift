@@ -27,6 +27,9 @@ actor FakeBackend: ContainerBackend {
     var volumes: [VolumeSummary]
     var networks: [NetworkSummary]
     var logData = Data()
+    /// What `inspectContainer` returns as the service's description, when a test sets one.
+    var inspectJSON: Data?
+    var imageInspectJSON: Data?
     var running = true
     var serviceVersion = "1.7.1"
     var pullDelaySeconds: Double = 0
@@ -51,6 +54,10 @@ actor FakeBackend: ContainerBackend {
     }
 
     func set(logData: Data) { self.logData = logData }
+    func set(inspectJSON: Data) { self.inspectJSON = inspectJSON }
+    func set(imageInspectJSON: Data) { self.imageInspectJSON = imageInspectJSON }
+    func set(execResult: ExecResult) { self.execResult = execResult }
+    func set(containers: [ContainerSummary]) { self.containers = containers }
     func set(running: Bool) { self.running = running }
     func set(serviceVersion: String) { self.serviceVersion = serviceVersion }
     func set(pullDelaySeconds: Double) { self.pullDelaySeconds = pullDelaySeconds }
@@ -73,7 +80,7 @@ actor FakeBackend: ContainerBackend {
 
     func inspectContainer(id: String) async throws -> ContainerDetail {
         guard let container = containers.first(where: { $0.id == id }) else { throw FakeError.notFound }
-        return ContainerDetail(summary: container, redactedJSON: Data(#"{"id":"\#(id)"}"#.utf8))
+        return ContainerDetail(summary: container, redactedJSON: inspectJSON ?? Data(#"{"id":"\#(id)"}"#.utf8))
     }
 
     func logs(id: String, boot: Bool) async throws -> Data { logData }
@@ -85,7 +92,7 @@ actor FakeBackend: ContainerBackend {
     func inspectImage(reference: String) async throws -> ImageDetail {
         let normalized = try await normalizeImageReference(reference)
         guard let image = images.first(where: { $0.reference == normalized }) else { throw FakeError.notFound }
-        return ImageDetail(summary: image, json: Data("{}".utf8))
+        return ImageDetail(summary: image, json: imageInspectJSON ?? Data("{}".utf8))
     }
 
     /// A simplified version of the service's normalization: default registry docker.io,
