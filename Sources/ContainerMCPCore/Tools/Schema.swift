@@ -1,5 +1,3 @@
-import MCP
-
 /// Builders for JSON Schema input definitions. Every object schema closes itself with
 /// `additionalProperties: false`, so clients see exactly which fields exist.
 enum Schema {

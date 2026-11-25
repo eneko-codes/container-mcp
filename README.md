@@ -221,16 +221,25 @@ The integration test and the probe create only resources named `container-mcp-it
 integration test needs `docker.io/library/alpine:3.21` to be absent beforehand, so that
 deleting it afterwards is safe, and it starts the shared `buildkit` container, leaving it
 stopped if it was stopped. The probe passes the policy options to the server itself; its read-only
-and writable folders must be the scratch folder's `readonly` and `writable` subfolders.
+and writable folders must be the scratch folder's `readonly` and `writable` subfolders. It also
+checks that progress only grows and that nothing arrives after a call's reply.
+
+The MCP protocol is not a package dependency. **`Sources/ContainerMCPCore/Protocol/MCPServer.swift`,
+`Protocol/Value.swift` and `Tests/ContainerMCPCoreTests/MCPProtocolTests.swift` are copied unchanged
+into every one of the owner's MCP servers** (the test file differs only in its `@testable import`).
+A change to one is made to every copy in the same piece of work; never let a copy drift. What is
+particular to this server, the protocol writer on its own file descriptor and the progress
+notifications, is in `Sources/ContainerMCPCore/Server/ContainerMCPServer.swift`. The other
+dependencies are apple/container and the libraries its client needs, all pinned exactly.
 
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
-| `Sources/ContainerMCPCore` | Policy, the settings parser, audit log, tool schemas and dispatcher. Depends only on the MCP SDK. |
+| `Sources/ContainerMCPCore` | Policy, the settings parser, audit log, tool schemas, dispatcher and the MCP protocol layer. Depends on no package: the protocol (JSON-RPC over stdio) is `Protocol/MCPServer.swift` over Foundation. |
 | `Sources/ContainerMCPNative` | The backend that talks to the container service through apple/container's client library |
 | `Sources/container-mcp` | The stdio server executable |
-| `Sources/container-mcp-probe` | A development MCP client that drives every tool |
+| `Sources/container-mcp-probe` | A development MCP client, plain JSON-RPC over the server's stdio, that drives every tool |
 | `Tests/ContainerMCPCoreTests` | Policy tests against a fake backend, one file per group of limits |
 | `Tests/ContainerMCPIntegrationTests` | The opt-in live test |
 | `Scripts` | The limit kill-check |

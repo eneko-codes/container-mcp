@@ -11,7 +11,6 @@ let package = Package(
         .executable(name: "container-mcp", targets: ["container-mcp"])
     ],
     dependencies: [
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
         .package(url: "https://github.com/apple/container.git", exact: "1.7.1"),
         // Already in the graph through apple/container; declared only so the native adapter can
         // import their types (Platform, IPAddress, Logger, FilePath, the build event loop).
@@ -23,9 +22,6 @@ let package = Package(
     targets: [
         .target(
             name: "ContainerMCPCore",
-            dependencies: [
-                .product(name: "MCP", package: "swift-sdk")
-            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
@@ -50,18 +46,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "container-mcp",
-            dependencies: [
-                "ContainerMCPCore",
-                "ContainerMCPNative",
-                .product(name: "MCP", package: "swift-sdk"),
-            ],
+            dependencies: ["ContainerMCPCore", "ContainerMCPNative"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
             name: "container-mcp-probe",
-            dependencies: [
-                .product(name: "MCP", package: "swift-sdk")
-            ],
+            dependencies: ["ContainerMCPCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

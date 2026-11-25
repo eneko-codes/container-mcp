@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "container-mcp",
   "display_name": "Apple container",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Manage the Linux containers of Apple's container tool on this Mac under a strict policy",
   "long_description": "A local MCP server written in Swift that lets Claude list, run, start, stop, exec into, build and delete the Linux containers that Apple's container tool runs on this Mac.\n\nEvery call passes one policy: host folders only inside the folders you choose (read-only unless you allow writing), published ports on 127.0.0.1 only, images only from the registries you list, CPU, memory and time limits, an audit log of every call, and a list of containers Claude may never touch. Write tools stay off until you turn on Allow write tools.\n\nNeeds container 1.7.1 installed and its service running. Not affiliated with or endorsed by Apple Inc.",
   "author": {

@@ -1,5 +1,4 @@
 import Foundation
-import MCP
 import Testing
 
 @testable import ContainerMCPCore
@@ -7,6 +6,8 @@ import Testing
 /// The tool surface: typed schemas that reject unknown fields, truthful annotations, and no
 /// tool for anything the server must never expose.
 @Suite struct ToolSchemaTests {
+    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
     @Test func everyToolNameHasExactlyOneDefinition() {
         #expect(Set(ToolCatalog.tools.map(\.name)) == Set(ToolName.allCases.map(\.rawValue)))
         #expect(ToolCatalog.tools.count == ToolName.allCases.count)
@@ -90,8 +91,7 @@ import Testing
     /// The desktop extension's manifest is written by hand; it must pass every option the
     /// server requires and list exactly the tools the server offers.
     @Test func extensionManifestMatchesTheServer() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let data = try Data(contentsOf: root.appendingPathComponent("extension/manifest.json"))
+        let data = try Data(contentsOf: Self.root.appendingPathComponent("extension/manifest.json"))
         let manifest = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let server = try #require(manifest["server"] as? [String: Any])
         let configuration = try #require(server["mcp_config"] as? [String: Any])
@@ -99,6 +99,18 @@ import Testing
         #expect(arguments.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) } == ConfigurationArguments.options)
         let tools = try #require(manifest["tools"] as? [[String: Any]]).compactMap { $0["name"] as? String }
         #expect(Set(tools) == Set(ToolName.allCases.map(\.rawValue)))
+        #expect(manifest["version"] as? String == ContainerMCPServer.version, "the manifest and the server must state the same version")
+    }
+
+    /// The MCP protocol is the copied `MCPServer.swift` over Foundation. The SDK it replaced
+    /// must not come back; the other dependencies are the container libraries and stay.
+    @Test func packageDoesNotDependOnTheMCPSDK() throws {
+        let package = try String(contentsOf: Self.root.appendingPathComponent("Package.swift"), encoding: .utf8)
+        #expect(!package.contains("swift-sdk"), "Package.swift declares the MCP Swift SDK")
+        #expect(!package.contains("modelcontextprotocol"))
+        #expect(!package.contains(#"name: "MCP""#), "a target depends on the SDK's MCP product")
+        let resolved = try String(contentsOf: Self.root.appendingPathComponent("Package.resolved"), encoding: .utf8)
+        #expect(!resolved.contains("swift-sdk"), "Package.resolved still pins the MCP Swift SDK")
     }
 
     @Test func unknownToolIsAnError() async throws {

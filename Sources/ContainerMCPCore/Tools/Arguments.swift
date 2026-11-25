@@ -1,5 +1,3 @@
-import MCP
-
 /// Strict reading of tool arguments: unknown fields and wrong types are refused before any
 /// policy rule runs, whatever the client did with the schema.
 struct Arguments {
@@ -21,15 +19,8 @@ struct Arguments {
 
     func string(_ key: String) throws(Refusal) -> String? {
         guard let value = values[key], !value.isNull else { return nil }
-        switch value {
-        case .string(let text):
-            return text
-        case .data:
-            // The SDK turns strings that look like data: URLs into binary values.
-            throw Refusal(.inputInvalid, "\(place).\(key) looks like a data: URL", allowed: "plain text")
-        default:
-            throw invalid(key, "a string")
-        }
+        guard let text = value.stringValue else { throw invalid(key, "a string") }
+        return text
     }
 
     func requiredString(_ key: String) throws(Refusal) -> String {
@@ -39,9 +30,9 @@ struct Arguments {
 
     func integer(_ key: String) throws(Refusal) -> Int? {
         guard let value = values[key], !value.isNull else { return nil }
-        if let number = value.intValue { return number }
-        if let number = value.doubleValue, number == number.rounded(), let exact = Int(exactly: number) { return exact }
-        throw invalid(key, "an integer")
+        // `intValue` also takes a whole number sent as 2.0, which JSON does not tell apart from 2.
+        guard let number = value.intValue else { throw invalid(key, "an integer") }
+        return number
     }
 
     func boolean(_ key: String, default fallback: Bool) throws(Refusal) -> Bool {
@@ -81,7 +72,6 @@ extension AuditValue {
         case .int(let number): self = .number(Double(number))
         case .double(let number): self = .number(number)
         case .string(let text): self = .string(text)
-        case .data(let mimeType, let data): self = .string("<\(data.count) bytes of \(mimeType ?? "data")>")
         case .array(let items): self = .array(items.map(AuditValue.init))
         case .object(let fields): self = .object(fields.mapValues(AuditValue.init))
         }

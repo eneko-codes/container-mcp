@@ -1,6 +1,5 @@
 import ContainerAPIClient
 import Foundation
-import MCP
 import Testing
 
 @testable import ContainerMCPCore
@@ -67,11 +66,7 @@ struct LiveServiceTests {
 
     func call(_ harness: Harness, _ tool: ToolName, _ arguments: [String: Value] = [:]) async -> (text: String, error: Bool) {
         let result = await harness.dispatcher.call(name: tool.rawValue, arguments: arguments)
-        let text = result.content.compactMap { item -> String? in
-            if case .text(let text, _, _) = item { return text }
-            return nil
-        }.joined()
-        return (text, result.isError == true)
+        return (result.text, result.isError == true)
     }
 
     func json(_ text: String) -> [String: Any] {
